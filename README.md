@@ -14,7 +14,7 @@ Agent → vault.issueToken (scoped token) → vault.call (vault adds secret) →
 
 ```bash
 # As an OpenClaw skill (recommended)
-git clone https://github.com/lil2good/agentic-credential-vault ~/.openclaw/skills/agentic-credential-vault
+git clone https://github.com/OWNER/agentic-credential-vault ~/.openclaw/skills/agentic-credential-vault
 cd ~/.openclaw/skills/agentic-credential-vault
 npm install
 ```
@@ -53,7 +53,7 @@ ln -sf ~/.openclaw/skills/agentic-credential-vault/agentvault ~/bin/agentvault
 agentvault health
 agentvault services
 agentvault token github github:repos:read
-agentvault call github repo.get --token "$TOKEN" --json '{"owner":"lil2good","repo":"my-repo"}'
+agentvault call github repo.get --token "$TOKEN" --json '{"owner":"OWNER","repo":"REPO"}'
 agentvault revoke --agent tony --reason "done"
 agentvault audit --limit 10
 ```
@@ -63,7 +63,7 @@ Or source in scripts:
 ```bash
 source ~/.openclaw/skills/agentic-credential-vault/agentvault.sh
 TOKEN=$(agentvault_token github github:repos:read)
-agentvault_call "$TOKEN" github repo.get '{"owner":"lil2good","repo":"my-repo"}'
+agentvault_call "$TOKEN" github repo.get '{"owner":"OWNER","repo":"REPO"}'
 ```
 
 ## Service Management

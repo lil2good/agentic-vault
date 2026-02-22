@@ -1,3 +1,10 @@
 node_modules/
 data/
 .env
+.vault-key
+config/services/
+config/policy.json
+config/policy.migrated.json
+ecosystem.config.cjs
+*.token-cache
+.token-cache

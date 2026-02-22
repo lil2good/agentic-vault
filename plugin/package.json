@@ -1,0 +1,15 @@
+{
+  "name": "@openclaw/vault",
+  "version": "0.1.0",
+  "description": "Agentic Credential Vault — per-agent scoped secrets for OpenClaw",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

@@ -1,7 +1,7 @@
 {
   "name": "github",
   "displayName": "GitHub",
-  "description": "GitHub API access for repositories, issues, and pull requests",
+  "description": "GitHub API access — repos, branches, files, issues, PRs, commits",
   "baseUrl": "https://api.github.com",
   "secretRef": "github_pat",
   "secretEnvHint": "Your GitHub Personal Access Token (Settings → Developer Settings → PATs)",
@@ -9,14 +9,37 @@
     "issue",
     "repos.get",
     "repos.list",
+    "repo.get",
+    "contents.get",
+    "contents.create_or_update",
+    "branches.list",
+    "branches.get",
+    "refs.create",
+    "refs.get",
+    "commits.list",
+    "commits.get",
+    "trees.create",
+    "blobs.create",
+    "git_commits.create",
+    "refs.update",
     "issues.list",
-    "pulls.list"
+    "issues.get",
+    "issues.create",
+    "pulls.list",
+    "pulls.get",
+    "pulls.create",
+    "pulls.merge",
+    "pulls.files"
   ],
   "allowedScopes": [
     "github:repos:read",
     "github:repos:write",
     "github:issues:read",
-    "github:prs:read"
+    "github:issues:write",
+    "github:prs:read",
+    "github:prs:write",
+    "github:git:read",
+    "github:git:write"
   ],
   "defaultScopes": [
     "github:repos:read"
@@ -25,33 +48,120 @@
     "*"
   ],
   "endpoints": {
-    "repos.get": {
-      "method": "GET",
-      "path": "/user/repos",
-      "requiredScope": [
-        "github:repos:read"
-      ]
-    },
     "repos.list": {
       "method": "GET",
       "path": "/user/repos",
-      "requiredScope": [
-        "github:repos:read"
-      ]
+      "requiredScope": ["github:repos:read"]
+    },
+    "repos.get": {
+      "method": "GET",
+      "path": "/user/repos",
+      "requiredScope": ["github:repos:read"]
+    },
+    "repo.get": {
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}",
+      "requiredScope": ["github:repos:read"]
+    },
+    "contents.get": {
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/contents/{path}",
+      "requiredScope": ["github:repos:read"]
+    },
+    "contents.create_or_update": {
+      "method": "PUT",
+      "path": "/repos/{owner}/{repo}/contents/{path}",
+      "requiredScope": ["github:repos:write"]
+    },
+    "branches.list": {
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/branches",
+      "requiredScope": ["github:repos:read"]
+    },
+    "branches.get": {
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/branches/{branch}",
+      "requiredScope": ["github:repos:read"]
+    },
+    "refs.get": {
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/git/ref/heads/{branch}",
+      "requiredScope": ["github:git:read"]
+    },
+    "refs.create": {
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/git/refs",
+      "requiredScope": ["github:git:write"]
+    },
+    "refs.update": {
+      "method": "PATCH",
+      "path": "/repos/{owner}/{repo}/git/refs/heads/{branch}",
+      "requiredScope": ["github:git:write"]
+    },
+    "commits.list": {
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/commits",
+      "requiredScope": ["github:git:read"]
+    },
+    "commits.get": {
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/commits/{sha}",
+      "requiredScope": ["github:git:read"]
+    },
+    "trees.create": {
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/git/trees",
+      "requiredScope": ["github:git:write"]
+    },
+    "blobs.create": {
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/git/blobs",
+      "requiredScope": ["github:git:write"]
+    },
+    "git_commits.create": {
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/git/commits",
+      "requiredScope": ["github:git:write"]
     },
     "issues.list": {
       "method": "GET",
       "path": "/repos/{owner}/{repo}/issues",
-      "requiredScope": [
-        "github:issues:read"
-      ]
+      "requiredScope": ["github:issues:read"]
+    },
+    "issues.get": {
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/issues/{issue_number}",
+      "requiredScope": ["github:issues:read"]
+    },
+    "issues.create": {
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/issues",
+      "requiredScope": ["github:issues:write"]
     },
     "pulls.list": {
       "method": "GET",
       "path": "/repos/{owner}/{repo}/pulls",
-      "requiredScope": [
-        "github:prs:read"
-      ]
+      "requiredScope": ["github:prs:read"]
+    },
+    "pulls.get": {
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/pulls/{pull_number}",
+      "requiredScope": ["github:prs:read"]
+    },
+    "pulls.create": {
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/pulls",
+      "requiredScope": ["github:prs:write"]
+    },
+    "pulls.merge": {
+      "method": "PUT",
+      "path": "/repos/{owner}/{repo}/pulls/{pull_number}/merge",
+      "requiredScope": ["github:prs:write"]
+    },
+    "pulls.files": {
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/pulls/{pull_number}/files",
+      "requiredScope": ["github:prs:read"]
     }
   }
 }

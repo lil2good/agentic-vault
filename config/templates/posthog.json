@@ -1,0 +1,55 @@
+{
+  "name": "posthog",
+  "displayName": "PostHog",
+  "description": "PostHog product analytics — events, trends, funnels, and HogQL queries",
+  "baseUrl": "https://us.i.posthog.com",
+  "secretRef": "posthog_api_key",
+  "secretEnvHint": "Your PostHog personal API key from Project Settings → Personal API Keys",
+  "allowedActions": [
+    "issue",
+    "query",
+    "events.list",
+    "persons.list",
+    "insights.list",
+    "insights.get"
+  ],
+  "allowedScopes": [
+    "posthog:query:read",
+    "posthog:events:read",
+    "posthog:persons:read",
+    "posthog:insights:read"
+  ],
+  "defaultScopes": [
+    "posthog:query:read"
+  ],
+  "defaultAllowedAgents": [
+    "*"
+  ],
+  "endpoints": {
+    "query": {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/query",
+      "requiredScope": ["posthog:query:read"]
+    },
+    "events.list": {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/events",
+      "requiredScope": ["posthog:events:read"]
+    },
+    "persons.list": {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/persons",
+      "requiredScope": ["posthog:persons:read"]
+    },
+    "insights.list": {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/insights",
+      "requiredScope": ["posthog:insights:read"]
+    },
+    "insights.get": {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/insights/{insight_id}",
+      "requiredScope": ["posthog:insights:read"]
+    }
+  }
+}

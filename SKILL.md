@@ -192,10 +192,10 @@ agentvault audit [--limit N]              # query audit log
 TOKEN=$(agentvault token github github:repos:read)
 
 # Use it
-agentvault call github repo.get --token "$TOKEN" --json '{"owner":"lil2good","repo":"my-repo"}'
+agentvault call github repo.get --token "$TOKEN" --json '{"owner":"OWNER","repo":"REPO"}'
 
 # Or pipe
-agentvault token github github:repos:read | agentvault call github repo.get --json '{"owner":"lil2good","repo":"my-repo"}'
+agentvault token github github:repos:read | agentvault call github repo.get --json '{"owner":"OWNER","repo":"REPO"}'
 ```
 
 ### From scripts (source the helper)
@@ -204,8 +204,8 @@ agentvault token github github:repos:read | agentvault call github repo.get --js
 source ~/.openclaw/skills/agentic-credential-vault/agentvault.sh
 
 TOKEN=$(agentvault_token github github:repos:read github:prs:read)
-agentvault_call "$TOKEN" github repo.get '{"owner":"lil2good","repo":"my-repo"}'
-agentvault_call "$TOKEN" github pulls.list '{"owner":"lil2good","repo":"my-repo"}'
+agentvault_call "$TOKEN" github repo.get '{"owner":"OWNER","repo":"REPO"}'
+agentvault_call "$TOKEN" github pulls.list '{"owner":"OWNER","repo":"REPO"}'
 ```
 
 ---
@@ -247,7 +247,7 @@ All scopes are prefixed `github:` (e.g. `github:repos:read`).
 source ~/.openclaw/skills/agentic-credential-vault/agentvault.sh
 TOKEN=$(agentvault_token github github:git:read github:git:write)
 
-O="lil2good"; R="my-repo"; B="feature/my-branch"
+O="OWNER"; R="REPO"; B="feature/my-branch"
 
 # 1. Get branch SHA
 SHA=$(agentvault_call "$TOKEN" github refs.get "{\"owner\":\"$O\",\"repo\":\"$R\",\"branch\":\"$B\"}" | jq -r '.object.sha')

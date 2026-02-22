@@ -1,0 +1,30 @@
+{
+  "name": "railway",
+  "displayName": "Railway",
+  "description": "Railway cloud infrastructure — deploy, monitor, and manage services via GraphQL API",
+  "baseUrl": "https://backboard.railway.com",
+  "secretRef": "railway_token",
+  "secretEnvHint": "Your Railway API token from https://railway.com/account/tokens",
+  "allowedActions": [
+    "issue",
+    "graphql"
+  ],
+  "allowedScopes": [
+    "railway:read",
+    "railway:write",
+    "railway:delete"
+  ],
+  "defaultScopes": [
+    "railway:read"
+  ],
+  "defaultAllowedAgents": [
+    "*"
+  ],
+  "endpoints": {
+    "graphql": {
+      "method": "POST",
+      "path": "/graphql/v2",
+      "requiredScope": ["railway:read"]
+    }
+  }
+}

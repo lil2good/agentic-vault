@@ -139,9 +139,10 @@ agentvault_call() {
     echo "usage: agentvault_call <token> <service> <action> [json_payload]" >&2
     return 1
   fi
+  local agent_id="${AGENTVAULT_AGENT_ID:-main}"
   local body
-  body=$(jq -n --arg t "$token" --arg s "$service" --arg a "$action" --argjson p "$payload" \
-    '{token: $t, service: $s, action: $a, params: $p}')
+  body=$(jq -n --arg t "$token" --arg s "$service" --arg a "$action" --argjson p "$payload" --arg aid "$agent_id" \
+    '{token: $t, service: $s, action: $a, params: $p, context: {agentId: $aid}}')
   local resp
   resp=$(_agentvault_post "/vault.call" "$body") || return 1
   echo "$resp" | jq .

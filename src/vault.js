@@ -23,9 +23,6 @@ const SERVICES_DIR = process.env.VAULT_SERVICES_DIR || path.resolve('config/serv
 const TEMPLATE_DIR = path.resolve('config/templates');
 const ADMIN_TOKEN = process.env.VAULT_ADMIN_TOKEN || '';
 
-// Legacy — only used for migration
-const LEGACY_POLICY_PATH = process.env.VAULT_POLICY_PATH || path.resolve('config/policy.json');
-
 if (!process.env.VAULT_SIGNING_KEY) {
   console.error('FATAL: VAULT_SIGNING_KEY is required. Refusing to start with unsafe default key.');
   process.exit(1);
@@ -77,75 +74,82 @@ function listServices() {
     const name = file.replace(/\.json$/, '');
     try {
       services[name] = JSON.parse(fs.readFileSync(path.join(SERVICES_DIR, file), 'utf8'));
-    } catch (err) {
-      console.error(`Warning: failed to parse service file ${file}:`, err.message);
-    }
+    } catch { /* skip malformed */ }
   }
   return services;
 }
 
-/** Build a policy-like object from individual service files (backward compat for internal functions) */
-function readPolicy() {
-  return { services: listServices() };
-}
-
 // ---------------------------------------------------------------------------
-// Migrate legacy policy.json → individual service files
+// Legacy migration — move policy.json services into config/services/
 // ---------------------------------------------------------------------------
 
 function migrateLegacyPolicy() {
-  if (!fs.existsSync(LEGACY_POLICY_PATH)) return;
+  const legacyPath = process.env.VAULT_POLICY_PATH || path.resolve('config/policy.json');
+  if (!fs.existsSync(legacyPath)) return;
 
   let policy;
   try {
-    policy = JSON.parse(fs.readFileSync(LEGACY_POLICY_PATH, 'utf8'));
+    policy = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
   } catch { return; }
 
   const services = policy.services || {};
-  const names = Object.keys(services);
-  if (names.length === 0) return;
-
   let migrated = 0;
   for (const [name, config] of Object.entries(services)) {
-    const target = path.join(SERVICES_DIR, `${name}.json`);
-    if (!fs.existsSync(target)) {
-      writeService(name, config);
+    const targetPath = path.join(SERVICES_DIR, `${name}.json`);
+    if (!fs.existsSync(targetPath)) {
+      writeAtomicJson(targetPath, config);
       migrated++;
     }
   }
 
   if (migrated > 0) {
-    // Rename legacy file so it's not re-read
-    const backupPath = LEGACY_POLICY_PATH.replace('.json', '.migrated.json');
-    fs.renameSync(LEGACY_POLICY_PATH, backupPath);
+    const backupPath = legacyPath.replace('.json', '.migrated.json');
+    fs.renameSync(legacyPath, backupPath);
     console.log(`Migrated ${migrated} service(s) from policy.json → config/services/. Backup: ${backupPath}`);
-    appendAudit('migration.policy_to_services', { migrated, names });
+  } else {
+    // All services already exist as files — safe to remove legacy
+    const backupPath = legacyPath.replace('.json', '.migrated.json');
+    fs.renameSync(legacyPath, backupPath);
+    console.log(`Legacy policy.json backed up to ${backupPath} (all services already in config/services/)`);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Helpers (unchanged)
+// Utilities
 // ---------------------------------------------------------------------------
 
 function redactSensitive(value) {
   const SENSITIVE_KEYS = new Set([
-    'token', 'authorization', 'auth', 'apiKey', 'apikey',
-    'accessToken', 'refreshToken', 'master_secrets_json',
-    'masterSecrets', 'masterSecret', 'secret',
+    'token',
+    'authorization',
+    'auth',
+    'apiKey',
+    'apikey',
+    'accessToken',
+    'refreshToken',
+    'master_secrets_json',
+    'masterSecrets',
+    'masterSecret',
+    'secret',
   ]);
 
-  if (Array.isArray(value)) return value.map(redactSensitive);
+  if (Array.isArray(value)) {
+    return value.map((item) => redactSensitive(item));
+  }
+
   if (value && typeof value === 'object') {
     const out = {};
     for (const [k, v] of Object.entries(value)) {
-      if (SENSITIVE_KEYS.has(k) || /token|secret|auth|api[-_]?key/i.test(k)) {
-        out[k] = '[REDACTED]';
+      const key = String(k);
+      if (SENSITIVE_KEYS.has(key) || /token|secret|auth|api[-_]?key/i.test(key)) {
+        out[key] = '[REDACTED]';
       } else {
-        out[k] = redactSensitive(v);
+        out[key] = redactSensitive(v);
       }
     }
     return out;
   }
+
   return value;
 }
 
@@ -158,18 +162,29 @@ initSecrets({ dataDir: DATA_DIR, appendAudit });
 
 function migrateMasterSecretsFromEnv() {
   if (!process.env.MASTER_SECRETS_JSON) return;
+
   let parsed;
-  try { parsed = JSON.parse(process.env.MASTER_SECRETS_JSON); }
-  catch (error) { console.error('FATAL: MASTER_SECRETS_JSON is invalid JSON.'); process.exit(1); }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    console.error('FATAL: MASTER_SECRETS_JSON must be an object.'); process.exit(1);
+  try {
+    parsed = JSON.parse(process.env.MASTER_SECRETS_JSON);
+  } catch (error) {
+    console.error('FATAL: MASTER_SECRETS_JSON is invalid JSON.');
+    console.error(error.message);
+    process.exit(1);
   }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    console.error('FATAL: MASTER_SECRETS_JSON must be an object of { secretRef: secret }.');
+    process.exit(1);
+  }
+
   const refs = Object.keys(parsed);
   for (const [ref, secret] of Object.entries(parsed)) {
-    if (typeof secret === 'string' && secret.trim()) setSecret(ref, secret);
+    if (typeof secret === 'string' && secret.trim()) {
+      setSecret(ref, secret);
+    }
   }
   appendAudit('secret.migrated.from_env', { refs });
-  console.warn('WARNING: MASTER_SECRETS_JSON migrated to encrypted storage. Remove it from env.');
+  console.warn('WARNING: MASTER_SECRETS_JSON was migrated into encrypted storage. Remove MASTER_SECRETS_JSON from env.');
 }
 
 migrateMasterSecretsFromEnv();
@@ -205,15 +220,25 @@ function validateScope(serviceConfig, requestedScope = []) {
 }
 
 function ensureActionScope(decodedScope = [], required = []) {
-  for (const need of (Array.isArray(required) ? required : [])) {
-    if (!decodedScope.includes(need)) throw new Error(`INSUFFICIENT_SCOPE:${need}`);
+  const requiredScope = Array.isArray(required) ? required : [];
+  for (const need of requiredScope) {
+    if (!decodedScope.includes(need)) {
+      throw new Error(`INSUFFICIENT_SCOPE:${need}`);
+    }
   }
 }
 
 function issueToken({ service, scope, ttl = 600, context }) {
   context = requireContext(context);
   const jti = crypto.randomUUID();
-  const payload = { sub: context.agentId, aud: AUDIENCE, jti, service, scope, ctx: context };
+  const payload = {
+    sub: context.agentId,
+    aud: AUDIENCE,
+    jti,
+    service,
+    scope,
+    ctx: context,
+  };
   const expiresInSec = Math.min(ttl, 900);
   const token = jwt.sign(payload, SIGNING_KEY, { expiresIn: expiresInSec });
   appendAudit('token.issued', { tokenId: jti, service, scope, ttl: expiresInSec, context });
@@ -228,46 +253,66 @@ function verifyToken(token, expectedContext) {
   if (rev.tasks.includes(decoded.ctx.taskId)) throw new Error('TASK_REVOKED');
   if (rev.agents.includes(decoded.ctx.agentId)) throw new Error('AGENT_REVOKED');
 
-  if (decoded.ctx.agentId !== expectedContext.agentId) throw new Error('CONTEXT_MISMATCH:agentId');
+  if (decoded.ctx.agentId !== expectedContext.agentId) {
+    throw new Error('CONTEXT_MISMATCH:agentId');
+  }
   for (const key of ['sessionId', 'taskId', 'skillId']) {
     const tokenVal = decoded.ctx[key];
     const expectedVal = expectedContext[key];
     if (tokenVal?.startsWith('auto-') || expectedVal?.startsWith('auto-')) continue;
-    if (tokenVal !== expectedVal) throw new Error(`CONTEXT_MISMATCH:${key}`);
+    if (tokenVal !== expectedVal) {
+      throw new Error(`CONTEXT_MISMATCH:${key}`);
+    }
   }
   return decoded;
 }
 
 function requireAdmin(req) {
   if (!ADMIN_TOKEN) throw new Error('ADMIN_NOT_CONFIGURED');
+
   const raw = req.headers.authorization || '';
   const [scheme, token] = raw.split(' ');
-  if (scheme !== 'Bearer' || !token || token !== ADMIN_TOKEN) throw new Error('ADMIN_UNAUTHORIZED');
+  if (scheme !== 'Bearer' || !token || token !== ADMIN_TOKEN) {
+    throw new Error('ADMIN_UNAUTHORIZED');
+  }
 }
 
 function assertString(value, field) {
-  if (typeof value !== 'string' || !value.trim()) throw new Error(`${field.toUpperCase()}_REQUIRED`);
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${field.toUpperCase()}_REQUIRED`);
+  }
 }
 
 function assertArrayStrings(value, field, { required = true } = {}) {
   if (value == null && !required) return;
-  if (!Array.isArray(value) || value.length === 0) throw new Error(`${field.toUpperCase()}_REQUIRED`);
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${field.toUpperCase()}_REQUIRED`);
+  }
   for (const item of value) {
-    if (typeof item !== 'string' || !item.trim()) throw new Error(`${field.toUpperCase()}_INVALID`);
+    if (typeof item !== 'string' || !item.trim()) {
+      throw new Error(`${field.toUpperCase()}_INVALID`);
+    }
   }
 }
 
 function validateEndpoints(endpoints) {
-  if (!endpoints || typeof endpoints !== 'object' || Array.isArray(endpoints)) throw new Error('ENDPOINTS_REQUIRED');
+  if (!endpoints || typeof endpoints !== 'object' || Array.isArray(endpoints)) {
+    throw new Error('ENDPOINTS_REQUIRED');
+  }
+
   for (const [name, def] of Object.entries(endpoints)) {
     if (!name.trim()) throw new Error('ENDPOINT_NAME_INVALID');
-    if (!def || typeof def !== 'object' || Array.isArray(def)) throw new Error(`ENDPOINT_INVALID:${name}`);
+    if (!def || typeof def !== 'object' || Array.isArray(def)) {
+      throw new Error(`ENDPOINT_INVALID:${name}`);
+    }
     assertString(def.method, `endpoint.${name}.method`);
     assertString(def.path, `endpoint.${name}.path`);
     if (def.requiredScope != null) {
       if (!Array.isArray(def.requiredScope)) throw new Error(`ENDPOINT_REQUIRED_SCOPE_INVALID:${name}`);
       for (const scope of def.requiredScope) {
-        if (typeof scope !== 'string' || !scope.trim()) throw new Error(`ENDPOINT_REQUIRED_SCOPE_INVALID:${name}`);
+        if (typeof scope !== 'string' || !scope.trim()) {
+          throw new Error(`ENDPOINT_REQUIRED_SCOPE_INVALID:${name}`);
+        }
       }
     }
   }
@@ -276,8 +321,14 @@ function validateEndpoints(endpoints) {
 function mergeDeep(base, patch) {
   const out = { ...base };
   for (const [key, value] of Object.entries(patch)) {
-    if (value && typeof value === 'object' && !Array.isArray(value) &&
-        base[key] && typeof base[key] === 'object' && !Array.isArray(base[key])) {
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      base[key] &&
+      typeof base[key] === 'object' &&
+      !Array.isArray(base[key])
+    ) {
       out[key] = mergeDeep(base[key], value);
     } else {
       out[key] = value;
@@ -288,14 +339,19 @@ function mergeDeep(base, patch) {
 
 function listTemplates() {
   if (!fs.existsSync(TEMPLATE_DIR)) return [];
-  return fs.readdirSync(TEMPLATE_DIR).filter(n => n.endsWith('.json')).map(n => n.replace(/\.json$/, ''));
+  return fs
+    .readdirSync(TEMPLATE_DIR)
+    .filter((name) => name.endsWith('.json'))
+    .map((name) => name.replace(/\.json$/, ''));
 }
 
 function loadTemplateByName(templateName) {
   assertString(templateName, 'template');
   const normalized = templateName.trim().toLowerCase();
   const filePath = path.join(TEMPLATE_DIR, `${normalized}.json`);
-  if (!fs.existsSync(filePath)) throw new Error(`UNKNOWN_TEMPLATE:${normalized}`);
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`UNKNOWN_TEMPLATE:${normalized}`);
+  }
 
   const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
   assertString(parsed.name, 'template.name');
@@ -303,14 +359,17 @@ function loadTemplateByName(templateName) {
   assertArrayStrings(parsed.allowedActions, 'template.allowedActions');
   assertArrayStrings(parsed.allowedScopes, 'template.allowedScopes');
   validateEndpoints(parsed.endpoints);
+
   return parsed;
 }
 
-function sanitizeServiceList(services) {
+function sanitizeServiceList() {
+  const services = listServices();
   return Object.entries(services).map(([service, cfg]) => ({
     service,
     baseUrl: cfg.baseUrl,
     secretRef: cfg.secretRef || null,
+    authHeader: cfg.authHeader || null,
     allowedAgents: cfg.allowedAgents || [],
     allowedActions: cfg.allowedActions || [],
     allowedScopes: cfg.allowedScopes || [],
@@ -326,14 +385,25 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 
 app.post('/vault.issueToken', (req, res) => {
   try {
-    const { service, scope, ttl, sessionId, taskId, skillId, agentId, tool = 'vault.issueToken' } = req.body;
-    if (!service) throw new Error('SERVICE_REQUIRED');
+    const {
+      service,
+      scope,
+      ttl,
+      sessionId,
+      taskId,
+      skillId,
+      agentId,
+      tool = 'vault.issueToken',
+    } = req.body;
 
+    if (!service) throw new Error('SERVICE_REQUIRED');
     const serviceConfig = readService(service);
     if (!serviceConfig) throw new Error('UNKNOWN_SERVICE');
 
     const context = requireContext({ agentId, sessionId, taskId, skillId, tool });
-    if (!isActionAllowed(serviceConfig, 'issue', context.agentId)) throw new Error('POLICY_DENY');
+    if (!isActionAllowed(serviceConfig, 'issue', context.agentId)) {
+      throw new Error('POLICY_DENY');
+    }
 
     const validScope = validateScope(serviceConfig, scope);
     const token = issueToken({ service, scope: validScope, ttl, context });
@@ -351,7 +421,9 @@ app.post('/vault.call', async (req, res) => {
 
     const serviceConfig = readService(service);
     if (!serviceConfig) throw new Error('UNKNOWN_SERVICE');
-    if (!isActionAllowed(serviceConfig, action, context.agentId)) throw new Error('POLICY_DENY');
+    if (!isActionAllowed(serviceConfig, action, context.agentId)) {
+      throw new Error('POLICY_DENY');
+    }
 
     const decoded = verifyToken(token, context);
     if (decoded.service !== service) throw new Error('SERVICE_MISMATCH');
@@ -372,10 +444,10 @@ app.post('/vault.call', async (req, res) => {
     const remainingParams = Object.fromEntries(
       Object.entries(params).filter(([k]) => !pathParamKeys.has(k))
     );
-
     let upstream = `${serviceConfig.baseUrl}${interpolatedPath}`;
     if (endpoint.method === 'GET' && Object.keys(remainingParams).length > 0) {
-      upstream += `?${new URLSearchParams(remainingParams).toString()}`;
+      const qs = new URLSearchParams(remainingParams).toString();
+      upstream += `?${qs}`;
     }
 
     const headers = { 'Content-Type': 'application/json', ...(endpoint.headers || {}) };
@@ -383,20 +455,32 @@ app.post('/vault.call', async (req, res) => {
     if (secretRef) {
       const secret = getSecret(secretRef);
       if (!secret) throw new Error(`MISSING_MASTER_SECRET:${secretRef}`);
-      headers.Authorization = `Bearer ${secret}`;
+      const authHeader = serviceConfig.authHeader || 'Authorization';
+      const authScheme = serviceConfig.authScheme;
+      headers[authHeader] = authScheme
+        ? `${authScheme} ${secret}`
+        : authHeader === 'Authorization'
+          ? `Bearer ${secret}`
+          : secret;
     }
 
     const response = await fetch(upstream, {
       method: endpoint.method || 'POST',
       headers,
-      body: endpoint.method === 'GET' ? undefined : JSON.stringify(remainingParams),
+      body: endpoint.method === 'GET' ? undefined : JSON.stringify(
+        Object.fromEntries(Object.entries(params).filter(([k]) => !endpoint.path.includes(`{${k}}`)))
+      ),
     });
     const text = await response.text();
 
     appendAudit('proxy.call', {
-      service, action, context,
-      tokenId: decoded.jti, scope: decoded.scope,
-      status: response.status, upstream,
+      service,
+      action,
+      context,
+      tokenId: decoded.jti,
+      scope: decoded.scope,
+      status: response.status,
+      upstream,
     });
 
     res.status(response.status).send(text);
@@ -415,6 +499,7 @@ app.post('/vault.revoke', (req, res) => {
     if (taskId && !rev.tasks.includes(taskId)) rev.tasks.push(taskId);
     if (agentId && !rev.agents.includes(agentId)) rev.agents.push(agentId);
     writeRevocations(rev);
+
     appendAudit('token.revoked', { tokenId, sessionId, taskId, agentId, reason });
     res.json({ ok: true, revoked: { tokenId, sessionId, taskId, agentId } });
   } catch (error) {
@@ -426,12 +511,21 @@ app.post('/vault.audit.query', (req, res) => {
   try {
     const { filters = {}, limit = 100 } = req.body;
     if (!fs.existsSync(AUDIT_PATH)) return res.json([]);
+
     const text = fs.readFileSync(AUDIT_PATH, 'utf8').trim();
     if (!text) return res.json([]);
-    const rows = text.split('\n').filter(Boolean).map(l => JSON.parse(l));
-    const result = rows.filter(row =>
-      Object.entries(filters).every(([k, v]) => row[k] === v || row.context?.[k] === v)
+
+    const rows = text
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+
+    const result = rows.filter((row) =>
+      Object.entries(filters).every(
+        ([k, v]) => row[k] === v || row.context?.[k] === v
+      )
     );
+
     res.json(result.slice(-limit));
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -439,7 +533,7 @@ app.post('/vault.audit.query', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Admin routes
+// Admin endpoints
 // ---------------------------------------------------------------------------
 
 app.post('/vault.admin.listTemplates', (req, res) => {
@@ -457,7 +551,19 @@ app.post('/vault.admin.listTemplates', (req, res) => {
 app.post('/vault.admin.addService', (req, res) => {
   try {
     requireAdmin(req);
-    const { service, baseUrl, allowedAgents, allowedActions, allowedScopes, endpoints, secretRef, masterSecret } = req.body;
+
+    const {
+      service,
+      baseUrl,
+      allowedAgents,
+      allowedActions,
+      allowedScopes,
+      endpoints,
+      secretRef,
+      authHeader,
+      authScheme,
+      masterSecret,
+    } = req.body;
 
     assertString(service, 'service');
     assertString(baseUrl, 'baseUrl');
@@ -469,18 +575,30 @@ app.post('/vault.admin.addService', (req, res) => {
     if (readService(service)) throw new Error('SERVICE_ALREADY_EXISTS');
 
     const config = {
-      baseUrl, allowedAgents, allowedActions, allowedScopes, endpoints,
+      baseUrl,
+      allowedAgents,
+      allowedActions,
+      allowedScopes,
+      endpoints,
       ...(secretRef ? { secretRef } : {}),
+      ...(authHeader ? { authHeader } : {}),
+      ...(authScheme ? { authScheme } : {}),
     };
 
     if (masterSecret != null) {
       const targetRef = secretRef || `${service}_secret`;
-      setSecret(targetRef, masterSecret);
       config.secretRef = targetRef;
+      setSecret(targetRef, masterSecret);
     }
 
     writeService(service, config);
-    appendAudit('admin.addService', { service, secretRef: config.secretRef || null, body: redactSensitive(req.body) });
+
+    appendAudit('admin.addService', {
+      service,
+      secretRef: config.secretRef || null,
+      body: redactSensitive(req.body),
+    });
+
     res.json({ ok: true, service });
   } catch (error) {
     appendAudit('admin.addService.denied', { error: error.message, body: redactSensitive(req.body) });
@@ -494,9 +612,11 @@ app.post('/vault.admin.updateService', (req, res) => {
     const { service, ...updates } = req.body;
     assertString(service, 'service');
 
-    for (const key of ['masterSecret', 'secret']) {
+    const disallowed = ['masterSecret', 'secret'];
+    for (const key of disallowed) {
       if (key in updates) throw new Error(`FIELD_NOT_ALLOWED:${key}`);
     }
+
     if (updates.allowedAgents != null) assertArrayStrings(updates.allowedAgents, 'allowedAgents');
     if (updates.allowedActions != null) assertArrayStrings(updates.allowedActions, 'allowedActions');
     if (updates.allowedScopes != null) assertArrayStrings(updates.allowedScopes, 'allowedScopes');
@@ -507,6 +627,7 @@ app.post('/vault.admin.updateService', (req, res) => {
     if (!existing) throw new Error('UNKNOWN_SERVICE');
 
     writeService(service, mergeDeep(existing, updates));
+
     appendAudit('admin.updateService', { service, body: redactSensitive(req.body) });
     res.json({ ok: true, service });
   } catch (error) {
@@ -526,7 +647,10 @@ app.post('/vault.admin.removeService', (req, res) => {
 
     const secretRef = existing.secretRef;
     deleteService(service);
-    if (secretRef) removeSecret(secretRef);
+
+    if (secretRef) {
+      removeSecret(secretRef);
+    }
 
     appendAudit('admin.removeService', { service, secretRef: secretRef || null });
     res.json({ ok: true, service });
@@ -539,7 +663,8 @@ app.post('/vault.admin.removeService', (req, res) => {
 app.post('/vault.admin.listServices', (req, res) => {
   try {
     requireAdmin(req);
-    const services = sanitizeServiceList(listServices());
+    const services = sanitizeServiceList();
+
     appendAudit('admin.listServices', { count: services.length });
     res.json({ services });
   } catch (error) {
@@ -554,6 +679,7 @@ app.post('/vault.admin.addSecret', (req, res) => {
     const { secretRef, secret } = req.body;
     assertString(secretRef, 'secretRef');
     assertString(secret, 'secret');
+
     setSecret(secretRef, secret);
     appendAudit('admin.addSecret', { secretRef, redacted: true });
     res.json({ ok: true, secretRef });
@@ -568,6 +694,7 @@ app.post('/vault.admin.removeSecret', (req, res) => {
     requireAdmin(req);
     const { secretRef } = req.body;
     assertString(secretRef, 'secretRef');
+
     removeSecret(secretRef);
     appendAudit('admin.removeSecret', { secretRef });
     res.json({ ok: true, secretRef });
@@ -585,7 +712,9 @@ app.post('/vault.admin.loadTemplate', (req, res) => {
 
     const serviceName = loaded.name;
     const effectiveAllowedAgents = Array.isArray(allowedAgents) && allowedAgents.length > 0
-      ? allowedAgents : (loaded.defaultAllowedAgents || ['*']);
+      ? allowedAgents
+      : loaded.defaultAllowedAgents || ['*'];
+
     assertArrayStrings(effectiveAllowedAgents, 'allowedAgents');
 
     const serviceConfig = {
@@ -597,16 +726,27 @@ app.post('/vault.admin.loadTemplate', (req, res) => {
       endpoints: loaded.endpoints,
     };
 
-    const existing = readService(serviceName) || {};
-    writeService(serviceName, mergeDeep(existing, serviceConfig));
+    const existing = readService(serviceName);
+    const merged = existing ? mergeDeep(existing, serviceConfig) : serviceConfig;
+    writeService(serviceName, merged);
 
     if (masterSecret != null) {
       assertString(masterSecret, 'masterSecret');
       setSecret(loaded.secretRef, masterSecret);
     }
 
-    appendAudit('admin.loadTemplate', { template: loaded.name, service: serviceName, body: redactSensitive(req.body) });
-    res.json({ ok: true, service: serviceName, template: loaded.name, secretConfigured: Boolean(masterSecret) });
+    appendAudit('admin.loadTemplate', {
+      template: loaded.name,
+      service: serviceName,
+      body: redactSensitive(req.body),
+    });
+
+    res.json({
+      ok: true,
+      service: serviceName,
+      template: loaded.name,
+      secretConfigured: Boolean(masterSecret),
+    });
   } catch (error) {
     appendAudit('admin.loadTemplate.denied', { error: error.message, body: redactSensitive(req.body) });
     res.status(400).json({ error: error.message });
@@ -614,12 +754,12 @@ app.post('/vault.admin.loadTemplate', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Start
+// Startup
 // ---------------------------------------------------------------------------
 
 app.listen(PORT, () => {
-  const refs = listSecretRefs();
   const serviceCount = Object.keys(listServices()).length;
+  const refs = listSecretRefs();
   console.log(`agentic-credential-vault listening on :${PORT}`);
   console.log(`${serviceCount} service(s) loaded from config/services/`);
   console.log(`encrypted secrets ready (${refs.length} refs)`);

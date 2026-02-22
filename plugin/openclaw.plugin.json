@@ -1,0 +1,23 @@
+{
+  "id": "vault",
+  "name": "Agentic Credential Vault",
+  "description": "Per-agent scoped secrets with JIT tokens, proxy enforcement, revocation, and audit logging. Agents never see master API keys.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "port": {
+        "type": "number",
+        "description": "Port for the vault server (default: 8787)"
+      },
+      "autoStart": {
+        "type": "boolean",
+        "description": "Auto-start vault server with the gateway (default: true)"
+      },
+      "dataDir": {
+        "type": "string",
+        "description": "Directory for vault data (secrets, audit log, revocations)"
+      }
+    }
+  }
+}

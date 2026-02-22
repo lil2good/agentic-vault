@@ -5,20 +5,35 @@
   "baseUrl": "https://api.stripe.com/v1",
   "secretRef": "stripe_secret_key",
   "secretEnvHint": "Your Stripe Secret API Key (Developers → API keys)",
-  "allowedActions": ["issue", "charges.list", "customers.list"],
-  "allowedScopes": ["stripe:charges:read", "stripe:customers:read"],
-  "defaultScopes": ["stripe:charges:read"],
-  "defaultAllowedAgents": ["*"],
+  "allowedActions": [
+    "issue",
+    "charges.list",
+    "customers.list"
+  ],
+  "allowedScopes": [
+    "stripe:charges:read",
+    "stripe:customers:read"
+  ],
+  "defaultScopes": [
+    "stripe:charges:read"
+  ],
+  "defaultAllowedAgents": [
+    "*"
+  ],
   "endpoints": {
     "charges.list": {
       "method": "GET",
       "path": "/charges",
-      "requiredScope": ["stripe:charges:read"]
+      "requiredScope": [
+        "stripe:charges:read"
+      ]
     },
     "customers.list": {
       "method": "GET",
       "path": "/customers",
-      "requiredScope": ["stripe:customers:read"]
+      "requiredScope": [
+        "stripe:customers:read"
+      ]
     }
   }
 }

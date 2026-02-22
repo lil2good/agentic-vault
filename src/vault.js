@@ -125,10 +125,14 @@ function migrateMasterSecretsFromEnv() {
 migrateMasterSecretsFromEnv();
 
 function requireContext(input = {}) {
-  const required = ['agentId', 'sessionId', 'taskId', 'skillId', 'tool'];
-  for (const key of required) {
-    if (!input[key]) throw new Error(`Missing required context: ${key}`);
-  }
+  // Only agentId is truly required for policy enforcement.
+  // Other fields get sensible defaults for single-agent / non-Convex setups.
+  if (!input.agentId) input.agentId = 'main';
+  if (!input.sessionId) input.sessionId = `auto-${crypto.randomUUID().slice(0, 8)}`;
+  if (!input.taskId) input.taskId = `auto-${crypto.randomUUID().slice(0, 8)}`;
+  if (!input.skillId) input.skillId = 'default';
+  if (!input.tool) input.tool = 'vault';
+  return input;
 }
 
 function isActionAllowed(policy, service, action, agentId) {
@@ -162,7 +166,7 @@ function ensureActionScope(decodedScope = [], required = []) {
 }
 
 function issueToken({ service, scope, ttl = 600, context }) {
-  requireContext(context);
+  context = requireContext(context);
   const jti = crypto.randomUUID();
   const payload = {
     sub: context.agentId,
@@ -186,8 +190,17 @@ function verifyToken(token, expectedContext) {
   if (rev.tasks.includes(decoded.ctx.taskId)) throw new Error('TASK_REVOKED');
   if (rev.agents.includes(decoded.ctx.agentId)) throw new Error('AGENT_REVOKED');
 
-  for (const key of ['agentId', 'sessionId', 'taskId', 'skillId']) {
-    if (decoded.ctx[key] !== expectedContext[key]) {
+  // Always enforce agentId match. For other fields, only enforce if the
+  // token was issued with an explicit (non-auto-generated) value.
+  if (decoded.ctx.agentId !== expectedContext.agentId) {
+    throw new Error('CONTEXT_MISMATCH:agentId');
+  }
+  for (const key of ['sessionId', 'taskId', 'skillId']) {
+    const tokenVal = decoded.ctx[key];
+    const expectedVal = expectedContext[key];
+    // Skip enforcement if either side is auto-generated
+    if (tokenVal?.startsWith('auto-') || expectedVal?.startsWith('auto-')) continue;
+    if (tokenVal !== expectedVal) {
       throw new Error(`CONTEXT_MISMATCH:${key}`);
     }
   }
@@ -323,8 +336,8 @@ app.post('/vault.issueToken', (req, res) => {
     if (!service) throw new Error('SERVICE_REQUIRED');
     if (!servicePolicy) throw new Error('UNKNOWN_SERVICE');
 
-    const context = { agentId, sessionId, taskId, skillId, tool };
-    if (!isActionAllowed(policy, service, 'issue', agentId)) {
+    const context = requireContext({ agentId, sessionId, taskId, skillId, tool });
+    if (!isActionAllowed(policy, service, 'issue', context.agentId)) {
       throw new Error('POLICY_DENY');
     }
 
@@ -339,8 +352,8 @@ app.post('/vault.issueToken', (req, res) => {
 
 app.post('/vault.call', async (req, res) => {
   try {
-    const { token, service, action, params = {}, context } = req.body;
-    requireContext(context);
+    const { token, service, action, params = {}, context: rawContext } = req.body;
+    const context = requireContext(rawContext || {});
 
     const policy = readPolicy();
     if (!isActionAllowed(policy, service, action, context.agentId)) {

@@ -1,0 +1,31 @@
+{
+  "services": {
+    "github": {
+      "allowedAgents": ["tony", "steve", "jarvis"],
+      "allowedActions": ["issue", "repos.get"],
+      "baseUrl": "https://api.github.com",
+      "secretRef": "github_pat",
+      "endpoints": {
+        "repos.get": {
+          "method": "GET",
+          "path": "/user/repos",
+          "headers": {
+            "Accept": "application/vnd.github+json"
+          }
+        }
+      }
+    },
+    "shopify": {
+      "allowedAgents": ["jarvis", "tony"],
+      "allowedActions": ["issue", "orders.list"],
+      "baseUrl": "https://example.myshopify.com/admin/api/2024-10",
+      "secretRef": "shopify_admin_token",
+      "endpoints": {
+        "orders.list": {
+          "method": "GET",
+          "path": "/orders.json"
+        }
+      }
+    }
+  }
+}

@@ -1,5 +1,7 @@
 # Agentic Credential Vault
 
+![Agentic Vault banner](assets/readme-banner.jpg)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Open Source](https://img.shields.io/badge/Open%20Source-Yes-brightgreen)](#)
 
 Per-agent scoped API credentials with JIT tokens, proxy enforcement, and audit logging for AI agents.

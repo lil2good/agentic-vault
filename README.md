@@ -67,3 +67,12 @@ curl -s http://localhost:8787/vault.audit.query -H 'content-type: application/js
 - Policy is deny-by-default; only allowlisted actions are executable.
 - Master secrets stay server-side (`MASTER_SECRETS_JSON` / backend secret manager adapter).
 - Use short TTL (5–15m). For risky actions, add single-use (`jti` spend-check) in next iteration.
+
+
+## MVP runtime constraints
+
+- `revocations.json` is designed for **single-process MVP** operation.
+- Writes are atomic (`write tmp + rename`) but there is no cross-process lock.
+- For multi-instance deployment, move revocation storage to SQLite/Postgres/Redis with transactional updates.
+- Server fails fast at startup if `VAULT_SIGNING_KEY` is missing or `MASTER_SECRETS_JSON` is invalid JSON.
+- Scope is mandatory on token issuance and enforced per endpoint via `requiredScope`.

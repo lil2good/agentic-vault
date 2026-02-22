@@ -8,19 +8,43 @@ const app = express();
 app.use(express.json({ limit: '1mb' }));
 
 const PORT = process.env.PORT || 8787;
-const SIGNING_KEY = process.env.VAULT_SIGNING_KEY || 'dev-signing-key-change-me';
 const AUDIENCE = process.env.VAULT_AUDIENCE || 'agentic-credential-vault-proxy';
 const DATA_DIR = process.env.VAULT_DATA_DIR || path.resolve('data');
 const AUDIT_PATH = path.join(DATA_DIR, 'audit.log.jsonl');
 const REVOCATIONS_PATH = path.join(DATA_DIR, 'revocations.json');
 const POLICY_PATH = process.env.VAULT_POLICY_PATH || path.resolve('config/policy.json');
-const MASTER_SECRETS = process.env.MASTER_SECRETS_JSON ? JSON.parse(process.env.MASTER_SECRETS_JSON) : {};
+
+if (!process.env.VAULT_SIGNING_KEY) {
+  console.error('FATAL: VAULT_SIGNING_KEY is required. Refusing to start with unsafe default key.');
+  process.exit(1);
+}
+const SIGNING_KEY = process.env.VAULT_SIGNING_KEY;
+
+let MASTER_SECRETS = {};
+if (process.env.MASTER_SECRETS_JSON) {
+  try {
+    MASTER_SECRETS = JSON.parse(process.env.MASTER_SECRETS_JSON);
+  } catch (error) {
+    console.error('FATAL: MASTER_SECRETS_JSON is invalid JSON.');
+    console.error(error.message);
+    process.exit(1);
+  }
+}
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(REVOCATIONS_PATH)) fs.writeFileSync(REVOCATIONS_PATH, JSON.stringify({ jti: [], sessions: [], tasks: [], agents: [] }, null, 2));
+if (!fs.existsSync(REVOCATIONS_PATH)) {
+  fs.writeFileSync(
+    REVOCATIONS_PATH,
+    JSON.stringify({ jti: [], sessions: [], tasks: [], agents: [] }, null, 2)
+  );
+}
 
 const readRevocations = () => JSON.parse(fs.readFileSync(REVOCATIONS_PATH, 'utf8'));
-const writeRevocations = (next) => fs.writeFileSync(REVOCATIONS_PATH, JSON.stringify(next, null, 2));
+const writeRevocations = (next) => {
+  const tmp = `${REVOCATIONS_PATH}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
+  fs.renameSync(tmp, REVOCATIONS_PATH);
+};
 
 function readPolicy() {
   return JSON.parse(fs.readFileSync(POLICY_PATH, 'utf8'));
@@ -43,10 +67,32 @@ function isActionAllowed(policy, service, action, agentId) {
   if (!servicePolicy) return false;
   const allowedActions = servicePolicy.allowedActions || [];
   const allowedAgents = servicePolicy.allowedAgents || [];
-  return allowedActions.includes(action) && (allowedAgents.includes('*') || allowedAgents.includes(agentId));
+  return (
+    allowedActions.includes(action) &&
+    (allowedAgents.includes('*') || allowedAgents.includes(agentId))
+  );
 }
 
-function issueToken({ service, scope = [], ttl = 600, context }) {
+function validateScope(servicePolicy, requestedScope = []) {
+  const allowedScopes = servicePolicy.allowedScopes || [];
+  const requested = Array.isArray(requestedScope) ? requestedScope : [];
+  if (requested.length === 0) throw new Error('SCOPE_REQUIRED');
+  if (allowedScopes.length === 0) throw new Error('SERVICE_ALLOWED_SCOPES_NOT_CONFIGURED');
+  const invalid = requested.filter((s) => !allowedScopes.includes(s));
+  if (invalid.length > 0) throw new Error(`INVALID_SCOPE:${invalid.join(',')}`);
+  return requested;
+}
+
+function ensureActionScope(decodedScope = [], required = []) {
+  const requiredScope = Array.isArray(required) ? required : [];
+  for (const need of requiredScope) {
+    if (!decodedScope.includes(need)) {
+      throw new Error(`INSUFFICIENT_SCOPE:${need}`);
+    }
+  }
+}
+
+function issueToken({ service, scope, ttl = 600, context }) {
   requireContext(context);
   const jti = crypto.randomUUID();
   const payload = {
@@ -57,9 +103,10 @@ function issueToken({ service, scope = [], ttl = 600, context }) {
     scope,
     ctx: context,
   };
-  const token = jwt.sign(payload, SIGNING_KEY, { expiresIn: Math.min(ttl, 900) });
-  appendAudit('token.issued', { tokenId: jti, service, scope, ttl, context });
-  return { tokenId: jti, token, expiresInSec: Math.min(ttl, 900) };
+  const expiresInSec = Math.min(ttl, 900);
+  const token = jwt.sign(payload, SIGNING_KEY, { expiresIn: expiresInSec });
+  appendAudit('token.issued', { tokenId: jti, service, scope, ttl: expiresInSec, context });
+  return { tokenId: jti, token, expiresInSec };
 }
 
 function verifyToken(token, expectedContext) {
@@ -82,14 +129,29 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 
 app.post('/vault.issueToken', (req, res) => {
   try {
-    const { service, scope, ttl, sessionId, taskId, skillId, agentId, tool = 'vault.issueToken' } = req.body;
+    const {
+      service,
+      scope,
+      ttl,
+      sessionId,
+      taskId,
+      skillId,
+      agentId,
+      tool = 'vault.issueToken',
+    } = req.body;
+
     const policy = readPolicy();
+    const servicePolicy = policy.services?.[service];
+    if (!service) throw new Error('SERVICE_REQUIRED');
+    if (!servicePolicy) throw new Error('UNKNOWN_SERVICE');
+
     const context = { agentId, sessionId, taskId, skillId, tool };
-    if (!service) throw new Error('service is required');
     if (!isActionAllowed(policy, service, 'issue', agentId)) {
       throw new Error('POLICY_DENY');
     }
-    const token = issueToken({ service, scope, ttl, context });
+
+    const validScope = validateScope(servicePolicy, scope);
+    const token = issueToken({ service, scope: validScope, ttl, context });
     res.json(token);
   } catch (error) {
     appendAudit('token.issue.denied', { error: error.message, body: req.body });
@@ -101,6 +163,7 @@ app.post('/vault.call', async (req, res) => {
   try {
     const { token, service, action, params = {}, context } = req.body;
     requireContext(context);
+
     const policy = readPolicy();
     if (!isActionAllowed(policy, service, action, context.agentId)) {
       throw new Error('POLICY_DENY');
@@ -109,9 +172,11 @@ app.post('/vault.call', async (req, res) => {
     const decoded = verifyToken(token, context);
     if (decoded.service !== service) throw new Error('SERVICE_MISMATCH');
 
-    const servicePolicy = policy.services[service];
-    const endpoint = servicePolicy.endpoints?.[action];
+    const servicePolicy = policy.services?.[service];
+    const endpoint = servicePolicy?.endpoints?.[action];
     if (!endpoint) throw new Error('UNKNOWN_ACTION');
+
+    ensureActionScope(decoded.scope || [], endpoint.requiredScope || []);
 
     const upstream = `${servicePolicy.baseUrl}${endpoint.path}`;
     const headers = { 'Content-Type': 'application/json', ...(endpoint.headers || {}) };
@@ -133,6 +198,7 @@ app.post('/vault.call', async (req, res) => {
       action,
       context,
       tokenId: decoded.jti,
+      scope: decoded.scope,
       status: response.status,
       upstream,
     });
@@ -153,6 +219,7 @@ app.post('/vault.revoke', (req, res) => {
     if (taskId && !rev.tasks.includes(taskId)) rev.tasks.push(taskId);
     if (agentId && !rev.agents.includes(agentId)) rev.agents.push(agentId);
     writeRevocations(rev);
+
     appendAudit('token.revoked', { tokenId, sessionId, taskId, agentId, reason });
     res.json({ ok: true, revoked: { tokenId, sessionId, taskId, agentId } });
   } catch (error) {
@@ -164,8 +231,21 @@ app.post('/vault.audit.query', (req, res) => {
   try {
     const { filters = {}, limit = 100 } = req.body;
     if (!fs.existsSync(AUDIT_PATH)) return res.json([]);
-    const rows = fs.readFileSync(AUDIT_PATH, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
-    const result = rows.filter((row) => Object.entries(filters).every(([k, v]) => row[k] === v || row.context?.[k] === v));
+
+    const text = fs.readFileSync(AUDIT_PATH, 'utf8').trim();
+    if (!text) return res.json([]);
+
+    const rows = text
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+
+    const result = rows.filter((row) =>
+      Object.entries(filters).every(
+        ([k, v]) => row[k] === v || row.context?.[k] === v
+      )
+    );
+
     res.json(result.slice(-limit));
   } catch (error) {
     res.status(400).json({ error: error.message });

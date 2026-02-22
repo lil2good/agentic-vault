@@ -4,7 +4,7 @@
 
 Per-agent scoped API credentials with JIT tokens, proxy enforcement, and audit logging for AI agents.
 
-Agents never see your API keys. They get short-lived, scoped tokens. The vault proxies the actual API call with the real secret server-side.
+Goal: agents should use scoped, short-lived tokens instead of handling raw API keys directly. The vault proxies the real API call server-side so normal agent workflows never need plaintext secrets.
 
 ```
 Agent → vault.issueToken (scoped token) → vault.call (vault adds secret) → GitHub/Shopify/etc
@@ -114,6 +114,16 @@ curl -s http://localhost:8787/vault.admin.addService \
 
 Path params like `{id}` are interpolated from the `params` object. Remaining params become query string (GET) or JSON body (POST).
 
+## Security Model (Important)
+
+This vault reduces key exposure for **sandboxed/restricted agents**.
+
+- ✅ Sandboxed agents can call `vault.issueToken` + `vault.call` without direct key access
+- ✅ Keys remain in vault storage and are injected server-side during proxy calls
+- ⚠️ Anyone with full host-level access to the vault machine (or readable `.env`/vault data files) can still access key material
+
+In other words: this protects against routine agent/tool leakage, not against a fully privileged machine operator. Use OS permissions, sandboxing, and least-privilege runtime policies to enforce the boundary.
+
 ## API Reference
 
 | Endpoint | Auth | Description |
@@ -143,7 +153,7 @@ Path params like `{id}` are interpolated from the `params` object. Remaining par
 ## Security
 
 - **Deny-by-default** — only allowlisted actions + scopes + agents can issue tokens
-- **Master secrets never leave the vault** — encrypted at rest, injected server-side on proxy
+- **No direct key handling in normal agent flows** — agents use scoped tokens; vault injects secrets server-side
 - **Short-lived tokens** — 60s–600s, max 900s
 - **Context-bound** — tokens are tied to agentId, sessionId, taskId
 - **Audit everything** — every token issue, proxy call, and revocation is logged
@@ -157,4 +167,4 @@ Path params like `{id}` are interpolated from the `params` object. Remaining par
 
 ## License
 
-Private — not yet published.
+MIT

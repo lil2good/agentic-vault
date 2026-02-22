@@ -1,0 +1,19 @@
+{
+  "name": "anthropic",
+  "displayName": "Anthropic",
+  "description": "Anthropic API access for messages.create",
+  "baseUrl": "https://api.anthropic.com/v1",
+  "secretRef": "anthropic_api_key",
+  "secretEnvHint": "Your Anthropic API key (Console → API Keys)",
+  "allowedActions": ["issue", "messages.create"],
+  "allowedScopes": ["anthropic:messages:create"],
+  "defaultScopes": ["anthropic:messages:create"],
+  "defaultAllowedAgents": ["*"],
+  "endpoints": {
+    "messages.create": {
+      "method": "POST",
+      "path": "/messages",
+      "requiredScope": ["anthropic:messages:create"]
+    }
+  }
+}

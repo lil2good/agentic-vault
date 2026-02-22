@@ -61,11 +61,68 @@ curl -s http://localhost:8787/vault.revoke -H 'content-type: application/json' -
 curl -s http://localhost:8787/vault.audit.query -H 'content-type: application/json' -d '{"filters":{"event":"proxy.call"},"limit":20}'
 ```
 
+## Admin API (conversational configuration)
+
+All admin endpoints require:
+
+```bash
+-H "Authorization: Bearer $VAULT_ADMIN_TOKEN"
+```
+
+### 1) List available templates
+```bash
+curl -s http://localhost:8787/vault.admin.listTemplates \
+  -H "Authorization: Bearer $VAULT_ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{}'
+```
+
+### 2) Load a template and set its master secret
+```bash
+curl -s http://localhost:8787/vault.admin.loadTemplate \
+  -H "Authorization: Bearer $VAULT_ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{
+    "template":"github",
+    "masterSecret":"ghp_xxx",
+    "allowedAgents":["tony","steve"]
+  }'
+```
+
+### 3) Add a custom service
+```bash
+curl -s http://localhost:8787/vault.admin.addService \
+  -H "Authorization: Bearer $VAULT_ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{
+    "service":"custom-api",
+    "baseUrl":"https://api.example.com",
+    "allowedAgents":["tony"],
+    "allowedActions":["issue","data.get"],
+    "allowedScopes":["custom:data:read"],
+    "endpoints":{
+      "data.get":{
+        "method":"GET",
+        "path":"/data",
+        "requiredScope":["custom:data:read"]
+      }
+    }
+  }'
+```
+
+### 4) List configured services
+```bash
+curl -s http://localhost:8787/vault.admin.listServices \
+  -H "Authorization: Bearer $VAULT_ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{}'
+```
+
 ## Security notes
 
 - Tokens are audience-bound (`aud`) and context-bound.
 - Policy is deny-by-default; only allowlisted actions are executable.
-- Master secrets stay server-side (`MASTER_SECRETS_JSON` / backend secret manager adapter).
+- Master secrets stay server-side in encrypted storage (`data/secrets.enc` via `VAULT_ENCRYPTION_KEY`).
 - Use short TTL (5–15m). For risky actions, add single-use (`jti` spend-check) in next iteration.
 
 

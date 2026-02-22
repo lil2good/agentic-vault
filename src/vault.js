@@ -3,6 +3,13 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import {
+  initSecrets,
+  getSecret,
+  setSecret,
+  removeSecret,
+  listSecretRefs,
+} from './secrets.js';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -13,23 +20,14 @@ const DATA_DIR = process.env.VAULT_DATA_DIR || path.resolve('data');
 const AUDIT_PATH = path.join(DATA_DIR, 'audit.log.jsonl');
 const REVOCATIONS_PATH = path.join(DATA_DIR, 'revocations.json');
 const POLICY_PATH = process.env.VAULT_POLICY_PATH || path.resolve('config/policy.json');
+const TEMPLATE_DIR = path.resolve('config/templates');
+const ADMIN_TOKEN = process.env.VAULT_ADMIN_TOKEN || '';
 
 if (!process.env.VAULT_SIGNING_KEY) {
   console.error('FATAL: VAULT_SIGNING_KEY is required. Refusing to start with unsafe default key.');
   process.exit(1);
 }
 const SIGNING_KEY = process.env.VAULT_SIGNING_KEY;
-
-let MASTER_SECRETS = {};
-if (process.env.MASTER_SECRETS_JSON) {
-  try {
-    MASTER_SECRETS = JSON.parse(process.env.MASTER_SECRETS_JSON);
-  } catch (error) {
-    console.error('FATAL: MASTER_SECRETS_JSON is invalid JSON.');
-    console.error(error.message);
-    process.exit(1);
-  }
-}
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(REVOCATIONS_PATH)) {
@@ -40,16 +38,20 @@ if (!fs.existsSync(REVOCATIONS_PATH)) {
 }
 
 const readRevocations = () => JSON.parse(fs.readFileSync(REVOCATIONS_PATH, 'utf8'));
-const writeRevocations = (next) => {
-  const tmp = `${REVOCATIONS_PATH}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
-  fs.renameSync(tmp, REVOCATIONS_PATH);
+const writeAtomicJson = (targetPath, next) => {
+  const tmp = `${targetPath}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`);
+  fs.renameSync(tmp, targetPath);
 };
+const writeRevocations = (next) => writeAtomicJson(REVOCATIONS_PATH, next);
 
 function readPolicy() {
   return JSON.parse(fs.readFileSync(POLICY_PATH, 'utf8'));
 }
 
+function writePolicy(next) {
+  writeAtomicJson(POLICY_PATH, next);
+}
 
 function redactSensitive(value) {
   const SENSITIVE_KEYS = new Set([
@@ -62,6 +64,7 @@ function redactSensitive(value) {
     'refreshToken',
     'master_secrets_json',
     'masterSecrets',
+    'masterSecret',
     'secret',
   ]);
 
@@ -89,6 +92,37 @@ function appendAudit(event, context = {}) {
   const line = JSON.stringify({ ts: Date.now(), event, ...context });
   fs.appendFileSync(AUDIT_PATH, `${line}\n`);
 }
+
+initSecrets({ dataDir: DATA_DIR, appendAudit });
+
+function migrateMasterSecretsFromEnv() {
+  if (!process.env.MASTER_SECRETS_JSON) return;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(process.env.MASTER_SECRETS_JSON);
+  } catch (error) {
+    console.error('FATAL: MASTER_SECRETS_JSON is invalid JSON.');
+    console.error(error.message);
+    process.exit(1);
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    console.error('FATAL: MASTER_SECRETS_JSON must be an object of { secretRef: secret }.');
+    process.exit(1);
+  }
+
+  const refs = Object.keys(parsed);
+  for (const [ref, secret] of Object.entries(parsed)) {
+    if (typeof secret === 'string' && secret.trim()) {
+      setSecret(ref, secret);
+    }
+  }
+  appendAudit('secret.migrated.from_env', { refs });
+  console.warn('WARNING: MASTER_SECRETS_JSON was migrated into encrypted storage. Remove MASTER_SECRETS_JSON from env.');
+}
+
+migrateMasterSecretsFromEnv();
 
 function requireContext(input = {}) {
   const required = ['agentId', 'sessionId', 'taskId', 'skillId', 'tool'];
@@ -160,6 +194,115 @@ function verifyToken(token, expectedContext) {
   return decoded;
 }
 
+function requireAdmin(req) {
+  if (!ADMIN_TOKEN) throw new Error('ADMIN_NOT_CONFIGURED');
+
+  const raw = req.headers.authorization || '';
+  const [scheme, token] = raw.split(' ');
+  if (scheme !== 'Bearer' || !token || token !== ADMIN_TOKEN) {
+    throw new Error('ADMIN_UNAUTHORIZED');
+  }
+}
+
+function assertString(value, field) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${field.toUpperCase()}_REQUIRED`);
+  }
+}
+
+function assertArrayStrings(value, field, { required = true } = {}) {
+  if (value == null && !required) return;
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${field.toUpperCase()}_REQUIRED`);
+  }
+  for (const item of value) {
+    if (typeof item !== 'string' || !item.trim()) {
+      throw new Error(`${field.toUpperCase()}_INVALID`);
+    }
+  }
+}
+
+function validateEndpoints(endpoints) {
+  if (!endpoints || typeof endpoints !== 'object' || Array.isArray(endpoints)) {
+    throw new Error('ENDPOINTS_REQUIRED');
+  }
+
+  for (const [name, def] of Object.entries(endpoints)) {
+    if (!name.trim()) throw new Error('ENDPOINT_NAME_INVALID');
+    if (!def || typeof def !== 'object' || Array.isArray(def)) {
+      throw new Error(`ENDPOINT_INVALID:${name}`);
+    }
+    assertString(def.method, `endpoint.${name}.method`);
+    assertString(def.path, `endpoint.${name}.path`);
+    if (def.requiredScope != null) {
+      if (!Array.isArray(def.requiredScope)) throw new Error(`ENDPOINT_REQUIRED_SCOPE_INVALID:${name}`);
+      for (const scope of def.requiredScope) {
+        if (typeof scope !== 'string' || !scope.trim()) {
+          throw new Error(`ENDPOINT_REQUIRED_SCOPE_INVALID:${name}`);
+        }
+      }
+    }
+  }
+}
+
+function mergeDeep(base, patch) {
+  const out = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      base[key] &&
+      typeof base[key] === 'object' &&
+      !Array.isArray(base[key])
+    ) {
+      out[key] = mergeDeep(base[key], value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+function listTemplates() {
+  if (!fs.existsSync(TEMPLATE_DIR)) return [];
+  return fs
+    .readdirSync(TEMPLATE_DIR)
+    .filter((name) => name.endsWith('.json'))
+    .map((name) => name.replace(/\.json$/, ''));
+}
+
+function loadTemplateByName(templateName) {
+  assertString(templateName, 'template');
+  const normalized = templateName.trim().toLowerCase();
+  const filePath = path.join(TEMPLATE_DIR, `${normalized}.json`);
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`UNKNOWN_TEMPLATE:${normalized}`);
+  }
+
+  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  assertString(parsed.name, 'template.name');
+  assertString(parsed.baseUrl, 'template.baseUrl');
+  assertArrayStrings(parsed.allowedActions, 'template.allowedActions');
+  assertArrayStrings(parsed.allowedScopes, 'template.allowedScopes');
+  validateEndpoints(parsed.endpoints);
+
+  return parsed;
+}
+
+function sanitizeServiceList(policy) {
+  const services = policy.services || {};
+  return Object.entries(services).map(([service, cfg]) => ({
+    service,
+    baseUrl: cfg.baseUrl,
+    secretRef: cfg.secretRef || null,
+    allowedAgents: cfg.allowedAgents || [],
+    allowedActions: cfg.allowedActions || [],
+    allowedScopes: cfg.allowedScopes || [],
+    endpointNames: Object.keys(cfg.endpoints || {}),
+  }));
+}
+
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 app.post('/vault.issueToken', (req, res) => {
@@ -217,8 +360,9 @@ app.post('/vault.call', async (req, res) => {
     const headers = { 'Content-Type': 'application/json', ...(endpoint.headers || {}) };
     const secretRef = servicePolicy.secretRef;
     if (secretRef) {
-      if (!MASTER_SECRETS[secretRef]) throw new Error(`MISSING_MASTER_SECRET:${secretRef}`);
-      headers.Authorization = `Bearer ${MASTER_SECRETS[secretRef]}`;
+      const secret = getSecret(secretRef);
+      if (!secret) throw new Error(`MISSING_MASTER_SECRET:${secretRef}`);
+      headers.Authorization = `Bearer ${secret}`;
     }
 
     const response = await fetch(upstream, {
@@ -287,6 +431,232 @@ app.post('/vault.audit.query', (req, res) => {
   }
 });
 
+app.post('/vault.admin.listTemplates', (req, res) => {
+  try {
+    requireAdmin(req);
+    const templates = listTemplates();
+    appendAudit('admin.listTemplates', { count: templates.length });
+    res.json({ templates });
+  } catch (error) {
+    appendAudit('admin.listTemplates.denied', { error: error.message });
+    res.status(403).json({ error: error.message });
+  }
+});
+
+app.post('/vault.admin.addService', (req, res) => {
+  try {
+    requireAdmin(req);
+
+    const {
+      service,
+      baseUrl,
+      allowedAgents,
+      allowedActions,
+      allowedScopes,
+      endpoints,
+      secretRef,
+      masterSecret,
+    } = req.body;
+
+    assertString(service, 'service');
+    assertString(baseUrl, 'baseUrl');
+    assertArrayStrings(allowedAgents, 'allowedAgents');
+    assertArrayStrings(allowedActions, 'allowedActions');
+    assertArrayStrings(allowedScopes, 'allowedScopes');
+    validateEndpoints(endpoints);
+
+    const policy = readPolicy();
+    policy.services ||= {};
+    if (policy.services[service]) throw new Error('SERVICE_ALREADY_EXISTS');
+
+    policy.services[service] = {
+      baseUrl,
+      allowedAgents,
+      allowedActions,
+      allowedScopes,
+      endpoints,
+      ...(secretRef ? { secretRef } : {}),
+    };
+
+    writePolicy(policy);
+
+    if (masterSecret != null) {
+      const targetRef = secretRef || `${service}_secret`;
+      setSecret(targetRef, masterSecret);
+      if (!policy.services[service].secretRef) {
+        policy.services[service].secretRef = targetRef;
+        writePolicy(policy);
+      }
+    }
+
+    appendAudit('admin.addService', {
+      service,
+      secretRef: policy.services[service].secretRef || null,
+      body: redactSensitive(req.body),
+    });
+
+    res.json({ ok: true, service });
+  } catch (error) {
+    appendAudit('admin.addService.denied', { error: error.message, body: redactSensitive(req.body) });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/vault.admin.updateService', (req, res) => {
+  try {
+    requireAdmin(req);
+    const { service, ...updates } = req.body;
+    assertString(service, 'service');
+
+    const disallowed = ['masterSecret', 'secret'];
+    for (const key of disallowed) {
+      if (key in updates) throw new Error(`FIELD_NOT_ALLOWED:${key}`);
+    }
+
+    if (updates.allowedAgents != null) assertArrayStrings(updates.allowedAgents, 'allowedAgents');
+    if (updates.allowedActions != null) assertArrayStrings(updates.allowedActions, 'allowedActions');
+    if (updates.allowedScopes != null) assertArrayStrings(updates.allowedScopes, 'allowedScopes');
+    if (updates.baseUrl != null) assertString(updates.baseUrl, 'baseUrl');
+    if (updates.endpoints != null) validateEndpoints(updates.endpoints);
+
+    const policy = readPolicy();
+    const existing = policy.services?.[service];
+    if (!existing) throw new Error('UNKNOWN_SERVICE');
+
+    policy.services[service] = mergeDeep(existing, updates);
+    writePolicy(policy);
+
+    appendAudit('admin.updateService', { service, body: redactSensitive(req.body) });
+    res.json({ ok: true, service });
+  } catch (error) {
+    appendAudit('admin.updateService.denied', { error: error.message, body: redactSensitive(req.body) });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/vault.admin.removeService', (req, res) => {
+  try {
+    requireAdmin(req);
+    const { service } = req.body;
+    assertString(service, 'service');
+
+    const policy = readPolicy();
+    const existing = policy.services?.[service];
+    if (!existing) throw new Error('UNKNOWN_SERVICE');
+
+    const secretRef = existing.secretRef;
+    delete policy.services[service];
+    writePolicy(policy);
+
+    if (secretRef) {
+      removeSecret(secretRef);
+    }
+
+    appendAudit('admin.removeService', { service, secretRef: secretRef || null });
+    res.json({ ok: true, service });
+  } catch (error) {
+    appendAudit('admin.removeService.denied', { error: error.message, body: redactSensitive(req.body) });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/vault.admin.listServices', (req, res) => {
+  try {
+    requireAdmin(req);
+    const policy = readPolicy();
+    const services = sanitizeServiceList(policy);
+
+    appendAudit('admin.listServices', { count: services.length });
+    res.json({ services });
+  } catch (error) {
+    appendAudit('admin.listServices.denied', { error: error.message });
+    res.status(403).json({ error: error.message });
+  }
+});
+
+app.post('/vault.admin.addSecret', (req, res) => {
+  try {
+    requireAdmin(req);
+    const { secretRef, secret } = req.body;
+    assertString(secretRef, 'secretRef');
+    assertString(secret, 'secret');
+
+    setSecret(secretRef, secret);
+    appendAudit('admin.addSecret', { secretRef, redacted: true });
+    res.json({ ok: true, secretRef });
+  } catch (error) {
+    appendAudit('admin.addSecret.denied', { error: error.message, body: redactSensitive(req.body) });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/vault.admin.removeSecret', (req, res) => {
+  try {
+    requireAdmin(req);
+    const { secretRef } = req.body;
+    assertString(secretRef, 'secretRef');
+
+    removeSecret(secretRef);
+    appendAudit('admin.removeSecret', { secretRef });
+    res.json({ ok: true, secretRef });
+  } catch (error) {
+    appendAudit('admin.removeSecret.denied', { error: error.message, body: redactSensitive(req.body) });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/vault.admin.loadTemplate', (req, res) => {
+  try {
+    requireAdmin(req);
+    const { template, masterSecret, allowedAgents } = req.body;
+    const loaded = loadTemplateByName(template);
+
+    const serviceName = loaded.name;
+    const effectiveAllowedAgents = Array.isArray(allowedAgents) && allowedAgents.length > 0
+      ? allowedAgents
+      : loaded.defaultAllowedAgents || ['*'];
+
+    assertArrayStrings(effectiveAllowedAgents, 'allowedAgents');
+
+    const serviceConfig = {
+      baseUrl: loaded.baseUrl,
+      secretRef: loaded.secretRef,
+      allowedAgents: effectiveAllowedAgents,
+      allowedActions: loaded.allowedActions,
+      allowedScopes: loaded.allowedScopes,
+      endpoints: loaded.endpoints,
+    };
+
+    const policy = readPolicy();
+    policy.services ||= {};
+    policy.services[serviceName] = mergeDeep(policy.services[serviceName] || {}, serviceConfig);
+    writePolicy(policy);
+
+    if (masterSecret != null) {
+      assertString(masterSecret, 'masterSecret');
+      setSecret(loaded.secretRef, masterSecret);
+    }
+
+    appendAudit('admin.loadTemplate', {
+      template: loaded.name,
+      service: serviceName,
+      body: redactSensitive(req.body),
+    });
+
+    res.json({
+      ok: true,
+      service: serviceName,
+      template: loaded.name,
+      secretConfigured: Boolean(masterSecret),
+    });
+  } catch (error) {
+    appendAudit('admin.loadTemplate.denied', { error: error.message, body: redactSensitive(req.body) });
+    res.status(400).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
+  const refs = listSecretRefs();
   console.log(`agentic-credential-vault listening on :${PORT}`);
+  console.log(`encrypted secrets ready (${refs.length} refs)`);
 });

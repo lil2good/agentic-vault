@@ -75,7 +75,7 @@ _cmd_call() {
   done
   # Read token from stdin if not provided and stdin is a pipe
   if [ -z "$token" ] && [ ! -t 0 ]; then
-    token=$(cat)
+    token=$(cat | tr -d '\n')
   fi
   if [ -z "$token" ]; then
     echo "error: no token provided. Use --token <t> or pipe from 'agentvault token'" >&2

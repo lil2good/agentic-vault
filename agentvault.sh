@@ -125,13 +125,16 @@ agentvault_token() {
     '{service: $svc, scope: $scopes, agentId: $agent, ttl: $ttl}')
   local resp
   resp=$(_agentvault_post "/vault.issueToken" "$body") || return 1
-  echo "$resp" | jq -r '.token'
+  echo "$resp" | jq -r '.token' | tr -d '\n'
 }
 
 agentvault_call() {
   # Usage: agentvault_call <token> <service> <action> [json_payload]
   _agentvault_require || return 1
-  local token="$1" service="$2" action="$3" payload="${4:-{}}"
+  local token="$1"
+  local service="$2"
+  local action="$3"
+  local payload="${4-"{}"}"
   if [ -z "$token" ] || [ -z "$service" ] || [ -z "$action" ]; then
     echo "usage: agentvault_call <token> <service> <action> [json_payload]" >&2
     return 1

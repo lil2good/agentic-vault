@@ -369,7 +369,23 @@ app.post('/vault.call', async (req, res) => {
 
     ensureActionScope(decoded.scope || [], endpoint.requiredScope || []);
 
-    const upstream = `${servicePolicy.baseUrl}${endpoint.path}`;
+    // Interpolate path params: /repos/{owner}/{repo} + params.owner/params.repo
+    // Interpolate path params: /repos/{owner}/{repo} + params.owner/params.repo
+    const pathParamKeys = new Set();
+    const interpolatedPath = endpoint.path.replace(/\{(\w+)\}/g, (_, key) => {
+      if (params[key] == null) throw new Error(`MISSING_PATH_PARAM:${key}`);
+      pathParamKeys.add(key);
+      return encodeURIComponent(params[key]);
+    });
+    // For GET requests, remaining params become query string
+    const remainingParams = Object.fromEntries(
+      Object.entries(params).filter(([k]) => !pathParamKeys.has(k))
+    );
+    let upstream = `${servicePolicy.baseUrl}${interpolatedPath}`;
+    if (endpoint.method === 'GET' && Object.keys(remainingParams).length > 0) {
+      const qs = new URLSearchParams(remainingParams).toString();
+      upstream += `?${qs}`;
+    }
     const headers = { 'Content-Type': 'application/json', ...(endpoint.headers || {}) };
     const secretRef = servicePolicy.secretRef;
     if (secretRef) {
@@ -381,7 +397,10 @@ app.post('/vault.call', async (req, res) => {
     const response = await fetch(upstream, {
       method: endpoint.method || 'POST',
       headers,
-      body: endpoint.method === 'GET' ? undefined : JSON.stringify(params),
+      body: endpoint.method === 'GET' ? undefined : JSON.stringify(
+        // Strip path params from body
+        Object.fromEntries(Object.entries(params).filter(([k]) => !endpoint.path.includes(`{${k}}`)))
+      ),
     });
     const text = await response.text();
 

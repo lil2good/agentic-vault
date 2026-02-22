@@ -15,7 +15,7 @@ Per-agent scoped secrets with least-privilege identity for AI agents.
 ```bash
 cp .env.example .env
 npm install
-node --env-file=.env src/server.js
+node --env-file=.env src/vault.js
 ```
 
 ## API

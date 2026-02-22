@@ -1,50 +1,232 @@
 ---
 name: agentic-credential-vault
-description: Issue and enforce short-lived, scoped credentials for AI agents with per-agent/session/task identity binding, proxy-mode secret isolation, revocation, and audit trails. Use when replacing shared API keys with least-privilege secret access in OpenClaw skills.
+description: Per-agent scoped API credentials with JIT tokens, proxy enforcement, revocation, and audit logging. Use when the user wants to secure API keys, add a service to the vault, manage agent credentials, or when any agent needs to call external APIs without exposing master secrets.
+metadata:
+  {
+    "openclaw":
+      {
+        "requires": { "bins": ["node", "npm"] },
+      },
+  }
 ---
 
-# Agentic Credential Vault Skill
+# Agentic Credential Vault
 
-Use this skill to replace raw `API_KEY` usage with scoped capability calls.
+Replaces raw API keys with scoped, short-lived tokens. Master secrets stay server-side — agents never see them.
 
-## Setup
+## First-Time Setup
 
-1. Run the vault service.
-2. Configure `config/policy.json` with service/action allowlists.
-3. Store master secrets in backend env/secret manager (not in prompts).
+If the vault is not yet installed, run these steps:
 
-## Tool contracts
+```bash
+# 1. Clone the repo
+git clone https://github.com/lil2good/agentic-credential-vault ~/projects/agentic-credential-vault
+cd ~/projects/agentic-credential-vault
 
-### `vault.issueToken({service, scope, ttl, sessionId, taskId, skillId, agentId, tool})`
+# 2. Install dependencies
+npm install
 
-- Return short-lived token scoped to `service+scope`.
-- Enforce max TTL (default 10m, max 15m).
+# 3. Auto-generate secure .env (signing key + admin token)
+SIGNING_KEY=$(openssl rand -hex 32)
+ADMIN_TOKEN=$(openssl rand -hex 24)
+cat > .env <<EOF
+PORT=8787
+VAULT_SIGNING_KEY=$SIGNING_KEY
+VAULT_ADMIN_TOKEN=$ADMIN_TOKEN
+VAULT_AUDIENCE=agentic-credential-vault-proxy
+VAULT_POLICY_PATH=./config/policy.json
+VAULT_DATA_DIR=./data
+EOF
+echo "Vault .env created with secure random keys."
 
-### `vault.call({token, service, action, params, context})`
+# 4. Start the vault (use pm2 for persistence, or run directly)
+# With pm2 (recommended — survives reboots):
+pm2 start src/vault.js --name vault --env-file .env
+pm2 save
 
-- Validate token + context binding (`agentId/sessionId/taskId/skillId`).
-- Enforce deny-by-default action policy.
-- Attach upstream master secret server-side.
-- Write audit event with full attribution tuple.
+# Without pm2 (manual):
+# node --env-file=.env src/vault.js &
+```
 
-### `vault.revoke({tokenId|sessionId|taskId|agentId})`
+Verify it's running:
+```bash
+curl -s http://localhost:8787/health
+# Expected: {"ok":true}
+```
 
-- Revoke instantly via denylist/kill switch.
+## Check If Vault Is Running
 
-### `vault.audit.query({filters, limit})`
+Before any vault operation, always check:
+```bash
+curl -s http://localhost:8787/health 2>/dev/null || echo "VAULT_DOWN"
+```
 
-- Query append-only log for incident response and compliance.
+If `VAULT_DOWN`:
+```bash
+cd ~/projects/agentic-credential-vault
+pm2 start src/vault.js --name vault --env-file .env 2>/dev/null || node --env-file=.env src/vault.js &
+sleep 1
+curl -s http://localhost:8787/health
+```
 
-## Recommended policy defaults
+## Read Admin Token
 
-- Deny by default
-- Explicit service/action allowlist
-- Per-agent service access
-- Per-action rate limits (add in next iteration)
+All admin operations need the admin token from `.env`:
+```bash
+ADMIN_TOKEN=$(grep VAULT_ADMIN_TOKEN ~/projects/agentic-credential-vault/.env | cut -d= -f2)
+```
 
-## Migration pattern for existing skills
+## Adding a Service (User Says "Add My X Key")
 
-- Before: `callThirdParty({ apiKey: process.env.X_API_KEY })`
-- After: `vault.call({ service: 'x', action: 'allowedAction', params, context })`
+### Option A: Use a built-in template (recommended)
 
-Never expose master API keys to LLM context.
+Available templates: `github`, `stripe`, `shopify`, `openai`, `anthropic`
+
+```bash
+# List templates
+curl -s http://localhost:8787/vault.admin.listTemplates \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{}'
+
+# Load a template with the user's API key
+curl -s http://localhost:8787/vault.admin.loadTemplate \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{
+    "template": "github",
+    "masterSecret": "<USER_API_KEY>",
+    "allowedAgents": ["tony", "steve", "jarvis"]
+  }'
+```
+
+**Important:** Ask the user for their API key. Never generate or guess API keys. Store them ONLY via the vault API — never write them to files, logs, or chat.
+
+### Option B: Add a custom service
+
+```bash
+curl -s http://localhost:8787/vault.admin.addService \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{
+    "service": "my-api",
+    "baseUrl": "https://api.example.com",
+    "allowedAgents": ["tony"],
+    "allowedActions": ["issue", "data.get"],
+    "allowedScopes": ["myapi:data:read"],
+    "endpoints": {
+      "data.get": {
+        "method": "GET",
+        "path": "/data",
+        "requiredScope": ["myapi:data:read"]
+      }
+    },
+    "secretRef": "myapi_key",
+    "masterSecret": "<USER_API_KEY>"
+  }'
+```
+
+## List Configured Services
+
+```bash
+curl -s http://localhost:8787/vault.admin.listServices \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{}'
+```
+
+Returns service names, allowed agents, scopes — secrets are NEVER returned.
+
+## Using the Vault (Agent Makes an API Call)
+
+### Step 1: Issue a scoped token
+
+```bash
+curl -s http://localhost:8787/vault.issueToken \
+  -H 'content-type: application/json' \
+  -d '{
+    "service": "github",
+    "scope": ["github:repos:read"],
+    "ttl": 60,
+    "agentId": "tony",
+    "sessionId": "sess-123",
+    "taskId": "task-456",
+    "skillId": "github-read",
+    "tool": "vault.issueToken"
+  }'
+```
+
+Returns: `{ tokenId, token, expiresInSec }`
+
+### Step 2: Proxy the API call
+
+```bash
+curl -s http://localhost:8787/vault.call \
+  -H 'content-type: application/json' \
+  -d '{
+    "token": "<TOKEN_FROM_STEP_1>",
+    "service": "github",
+    "action": "repos.get",
+    "params": {},
+    "context": {
+      "agentId": "tony",
+      "sessionId": "sess-123",
+      "taskId": "task-456",
+      "skillId": "github-read",
+      "tool": "vault.call"
+    }
+  }'
+```
+
+The vault attaches the master secret server-side and forwards the request. The agent never sees the real API key.
+
+## Revocation (Kill Switch)
+
+Revoke by token, session, task, or agent:
+
+```bash
+# Revoke a specific session
+curl -s http://localhost:8787/vault.revoke \
+  -H 'content-type: application/json' \
+  -d '{"sessionId": "sess-123", "reason": "task complete"}'
+
+# Revoke an entire agent
+curl -s http://localhost:8787/vault.revoke \
+  -H 'content-type: application/json' \
+  -d '{"agentId": "tony", "reason": "security incident"}'
+```
+
+## Audit Log
+
+Query the append-only audit trail:
+
+```bash
+curl -s http://localhost:8787/vault.audit.query \
+  -H 'content-type: application/json' \
+  -d '{"filters": {"event": "proxy.call"}, "limit": 20}'
+```
+
+## Update / Remove a Service
+
+```bash
+# Update (merge — only changes specified fields)
+curl -s http://localhost:8787/vault.admin.updateService \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"service": "github", "allowedAgents": ["tony", "steve", "jarvis", "bruce"]}'
+
+# Remove entirely
+curl -s http://localhost:8787/vault.admin.removeService \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"service": "github"}'
+```
+
+## Security Rules
+
+- **NEVER** log, print, or return master secrets — they stay in the vault
+- **NEVER** write API keys to files outside the vault's encrypted store
+- **NEVER** pass API keys in chat messages — use the vault API only
+- Short TTL tokens (60s–600s) — don't request more than you need
+- Revoke sessions/tokens when tasks are done
+- All operations are audit-logged automatically

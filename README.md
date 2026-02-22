@@ -2,8 +2,6 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Open Source](https://img.shields.io/badge/Open%20Source-Yes-brightgreen)](#)
 
-# Agentic Credential Vault
-
 Per-agent scoped API credentials with JIT tokens, proxy enforcement, and audit logging for AI agents.
 
 Agents never see your API keys. They get short-lived, scoped tokens. The vault proxies the actual API call with the real secret server-side.

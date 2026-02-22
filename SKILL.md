@@ -45,9 +45,20 @@ EOF
   echo "Vault .env created with secure random keys."
 fi
 
-# 3. Start the vault
-# With pm2 (recommended — survives reboots):
-pm2 start src/vault.js --name vault --env-file .env
+# 3. Start the vault with pm2 (recommended — survives reboots)
+# pm2 doesn't support --env-file, so use an ecosystem config:
+cat > ecosystem.config.cjs <<ECOEOF
+module.exports = {
+  apps: [{
+    name: 'vault',
+    script: 'src/vault.js',
+    cwd: '$(pwd)',
+    env: $(node -e "const fs=require('fs'); const lines=fs.readFileSync('.env','utf8').split('\n').filter(l=>l&&!l.startsWith('#')); const o={}; lines.forEach(l=>{const [k,...v]=l.split('=');o[k]=v.join('=')}); console.log(JSON.stringify(o,null,6))")
+  }]
+};
+ECOEOF
+pm2 start ecosystem.config.cjs
+pm2 save
 pm2 save
 
 # Without pm2 (manual):
@@ -246,6 +257,22 @@ curl -s http://localhost:8787/vault.admin.removeService \
 
 Instead of raw curl commands, use the `agentvault` CLI or source the helper in scripts.
 
+### Installation
+
+```bash
+# Symlink to somewhere on your PATH (requires jq)
+mkdir -p ~/bin
+ln -sf ~/.openclaw/skills/agentic-credential-vault/agentvault ~/bin/agentvault
+
+# Add ~/bin to PATH if not already there
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# Install jq if needed (no sudo required)
+curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o ~/bin/jq
+chmod +x ~/bin/jq
+```
+
 ### Terminal Usage
 
 ```bash
@@ -275,7 +302,7 @@ agentvault audit --limit 10 --event proxy.call
 ### Script Usage
 
 ```bash
-source /path/to/agentvault.sh
+source ~/.openclaw/skills/agentic-credential-vault/agentvault.sh
 
 # Issue a token (returns just the token string)
 TOKEN="$(agentvault_token github github:repos:read)"
@@ -284,13 +311,59 @@ TOKEN="$(agentvault_token github github:repos:read)"
 agentvault_call "$TOKEN" github repos.get
 
 # With a JSON payload
-agentvault_call "$TOKEN" github repos.get '{"owner":"lil2good"}'
+agentvault_call "$TOKEN" github repo.get '{"owner":"lil2good","repo":"my-repo"}'
 
 # Check vault health
 agentvault_health
 
 # List services (requires admin token)
 agentvault_services
+```
+
+### Available GitHub Actions
+
+| Action | Method | Scopes | Path Params |
+|--------|--------|--------|-------------|
+| `repos.list` | GET | `github:repos:read` | — |
+| `repo.get` | GET | `github:repos:read` | owner, repo |
+| `contents.get` | GET | `github:repos:read` | owner, repo, path |
+| `contents.create_or_update` | PUT | `github:repos:write` | owner, repo, path |
+| `branches.list` | GET | `github:repos:read` | owner, repo |
+| `branches.get` | GET | `github:repos:read` | owner, repo, branch |
+| `refs.get` | GET | `github:git:read` | owner, repo, branch |
+| `refs.create` | POST | `github:git:write` | owner, repo |
+| `refs.update` | PATCH | `github:git:write` | owner, repo, branch |
+| `commits.list` | GET | `github:git:read` | owner, repo |
+| `commits.get` | GET | `github:git:read` | owner, repo, sha |
+| `blobs.create` | POST | `github:git:write` | owner, repo |
+| `trees.create` | POST | `github:git:write` | owner, repo |
+| `git_commits.create` | POST | `github:git:write` | owner, repo |
+| `issues.list` | GET | `github:issues:read` | owner, repo |
+| `issues.get` | GET | `github:issues:read` | owner, repo, issue_number |
+| `issues.create` | POST | `github:issues:write` | owner, repo |
+| `pulls.list` | GET | `github:prs:read` | owner, repo |
+| `pulls.get` | GET | `github:prs:read` | owner, repo, pull_number |
+| `pulls.create` | POST | `github:prs:write` | owner, repo |
+| `pulls.merge` | PUT | `github:prs:write` | owner, repo, pull_number |
+| `pulls.files` | GET | `github:prs:read` | owner, repo, pull_number |
+
+### Common Workflow: Push Files
+
+```bash
+source ~/.openclaw/skills/agentic-credential-vault/agentvault.sh
+TOKEN=$(agentvault_token github github:git:read github:git:write)
+
+# 1. Get branch SHA
+REF=$(agentvault_call "$TOKEN" github refs.get '{"owner":"O","repo":"R","branch":"main"}')
+SHA=$(echo "$REF" | jq -r '.object.sha')
+
+# 2. Get base tree
+COMMIT=$(agentvault_call "$TOKEN" github commits.get "{\"owner\":\"O\",\"repo\":\"R\",\"sha\":\"$SHA\"}")
+TREE=$(echo "$COMMIT" | jq -r '.tree.sha')
+
+# 3. Create blob → tree → commit → update ref
+BLOB=$(agentvault_call "$TOKEN" github blobs.create '{"owner":"O","repo":"R","content":"hello","encoding":"utf-8"}')
+# ... (see ~/.openclaw/skills/github/SKILL.md for full workflow)
 ```
 
 ### Environment Variables

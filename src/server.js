@@ -50,6 +50,41 @@ function readPolicy() {
   return JSON.parse(fs.readFileSync(POLICY_PATH, 'utf8'));
 }
 
+
+function redactSensitive(value) {
+  const SENSITIVE_KEYS = new Set([
+    'token',
+    'authorization',
+    'auth',
+    'apiKey',
+    'apikey',
+    'accessToken',
+    'refreshToken',
+    'master_secrets_json',
+    'masterSecrets',
+    'secret',
+  ]);
+
+  if (Array.isArray(value)) {
+    return value.map((item) => redactSensitive(item));
+  }
+
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      const key = String(k);
+      if (SENSITIVE_KEYS.has(key) || /token|secret|auth|api[-_]?key/i.test(key)) {
+        out[key] = '[REDACTED]';
+      } else {
+        out[key] = redactSensitive(v);
+      }
+    }
+    return out;
+  }
+
+  return value;
+}
+
 function appendAudit(event, context = {}) {
   const line = JSON.stringify({ ts: Date.now(), event, ...context });
   fs.appendFileSync(AUDIT_PATH, `${line}\n`);
@@ -154,7 +189,7 @@ app.post('/vault.issueToken', (req, res) => {
     const token = issueToken({ service, scope: validScope, ttl, context });
     res.json(token);
   } catch (error) {
-    appendAudit('token.issue.denied', { error: error.message, body: req.body });
+    appendAudit('token.issue.denied', { error: error.message, body: redactSensitive(req.body) });
     res.status(403).json({ error: error.message });
   }
 });
@@ -205,7 +240,7 @@ app.post('/vault.call', async (req, res) => {
 
     res.status(response.status).send(text);
   } catch (error) {
-    appendAudit('proxy.call.denied', { error: error.message, body: req.body });
+    appendAudit('proxy.call.denied', { error: error.message, body: redactSensitive(req.body) });
     res.status(403).json({ error: error.message });
   }
 });

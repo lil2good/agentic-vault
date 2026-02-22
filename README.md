@@ -10,7 +10,15 @@ Per-agent scoped secrets with least-privilege identity for AI agents.
 - Revocation kill switches: token/session/task/agent
 - Append-only audit log (`data/audit.log.jsonl`)
 
-## Quick start
+## Install as OpenClaw Skill (recommended)
+
+```bash
+git clone https://github.com/lil2good/agentic-credential-vault ~/.openclaw/skills/agentic-credential-vault
+```
+
+Then tell your agent: **"Set up the credential vault"** — it handles the rest (npm install, secure key generation, server start).
+
+## Manual Quick Start
 
 ```bash
 cp .env.example .env

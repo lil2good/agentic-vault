@@ -16,20 +16,25 @@ Replaces raw API keys with scoped, short-lived tokens. Master secrets stay serve
 
 ## First-Time Setup
 
-If the vault is not yet installed, run these steps:
+The skill directory IS the vault server. No separate clone needed.
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/lil2good/agentic-credential-vault ~/projects/agentic-credential-vault
-cd ~/projects/agentic-credential-vault
+# Find this skill's directory (where this SKILL.md lives)
+VAULT_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+# Fallback: search common locations
+for d in ~/.openclaw/skills/agentic-credential-vault ~/openclaw/skills/agentic-credential-vault; do
+  [ -f "$d/src/vault.js" ] && VAULT_DIR="$d" && break
+done
+cd "$VAULT_DIR"
 
-# 2. Install dependencies
+# 1. Install dependencies (one time)
 npm install
 
-# 3. Auto-generate secure .env (signing key + admin token)
-SIGNING_KEY=$(openssl rand -hex 32)
-ADMIN_TOKEN=$(openssl rand -hex 24)
-cat > .env <<EOF
+# 2. Auto-generate secure .env if it doesn't exist
+if [ ! -f .env ]; then
+  SIGNING_KEY=$(openssl rand -hex 32)
+  ADMIN_TOKEN=$(openssl rand -hex 24)
+  cat > .env <<EOF
 PORT=8787
 VAULT_SIGNING_KEY=$SIGNING_KEY
 VAULT_ADMIN_TOKEN=$ADMIN_TOKEN
@@ -37,9 +42,10 @@ VAULT_AUDIENCE=agentic-credential-vault-proxy
 VAULT_POLICY_PATH=./config/policy.json
 VAULT_DATA_DIR=./data
 EOF
-echo "Vault .env created with secure random keys."
+  echo "Vault .env created with secure random keys."
+fi
 
-# 4. Start the vault (use pm2 for persistence, or run directly)
+# 3. Start the vault
 # With pm2 (recommended — survives reboots):
 pm2 start src/vault.js --name vault --env-file .env
 pm2 save
@@ -61,9 +67,11 @@ Before any vault operation, always check:
 curl -s http://localhost:8787/health 2>/dev/null || echo "VAULT_DOWN"
 ```
 
-If `VAULT_DOWN`:
+If `VAULT_DOWN`, find the skill directory and start it:
 ```bash
-cd ~/projects/agentic-credential-vault
+for d in ~/.openclaw/skills/agentic-credential-vault ~/openclaw/skills/agentic-credential-vault; do
+  [ -f "$d/src/vault.js" ] && cd "$d" && break
+done
 pm2 start src/vault.js --name vault --env-file .env 2>/dev/null || node --env-file=.env src/vault.js &
 sleep 1
 curl -s http://localhost:8787/health
@@ -73,7 +81,9 @@ curl -s http://localhost:8787/health
 
 All admin operations need the admin token from `.env`:
 ```bash
-ADMIN_TOKEN=$(grep VAULT_ADMIN_TOKEN ~/projects/agentic-credential-vault/.env | cut -d= -f2)
+for d in ~/.openclaw/skills/agentic-credential-vault ~/openclaw/skills/agentic-credential-vault; do
+  [ -f "$d/.env" ] && ADMIN_TOKEN=$(grep VAULT_ADMIN_TOKEN "$d/.env" | cut -d= -f2) && break
+done
 ```
 
 ## Adding a Service (User Says "Add My X Key")

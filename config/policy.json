@@ -1,33 +1,80 @@
 {
   "services": {
     "github": {
-      "allowedAgents": ["tony", "steve", "jarvis"],
-      "allowedActions": ["issue", "repos.get"],
-      "allowedScopes": ["github:repos:read"],
+      "allowedAgents": [
+        "main",
+        "coder"
+      ],
+      "allowedActions": [
+        "issue",
+        "repos.get",
+        "repos.list",
+        "issues.list",
+        "pulls.list"
+      ],
+      "allowedScopes": [
+        "github:repos:read",
+        "github:repos:write",
+        "github:issues:read",
+        "github:prs:read"
+      ],
       "baseUrl": "https://api.github.com",
       "secretRef": "github_pat",
       "endpoints": {
         "repos.get": {
           "method": "GET",
           "path": "/user/repos",
-          "requiredScope": ["github:repos:read"],
+          "requiredScope": [
+            "github:repos:read"
+          ],
           "headers": {
             "Accept": "application/vnd.github+json"
           }
+        },
+        "repos.list": {
+          "method": "GET",
+          "path": "/user/repos",
+          "requiredScope": [
+            "github:repos:read"
+          ]
+        },
+        "issues.list": {
+          "method": "GET",
+          "path": "/repos/{owner}/{repo}/issues",
+          "requiredScope": [
+            "github:issues:read"
+          ]
+        },
+        "pulls.list": {
+          "method": "GET",
+          "path": "/repos/{owner}/{repo}/pulls",
+          "requiredScope": [
+            "github:prs:read"
+          ]
         }
       }
     },
     "shopify": {
-      "allowedAgents": ["jarvis", "tony"],
-      "allowedActions": ["issue", "orders.list"],
-      "allowedScopes": ["shopify:orders:read"],
+      "allowedAgents": [
+        "jarvis",
+        "tony"
+      ],
+      "allowedActions": [
+        "issue",
+        "orders.list"
+      ],
+      "allowedScopes": [
+        "shopify:orders:read"
+      ],
       "baseUrl": "https://example.myshopify.com/admin/api/2024-10",
       "secretRef": "shopify_admin_token",
       "endpoints": {
         "orders.list": {
           "method": "GET",
           "path": "/orders.json",
-          "requiredScope": ["shopify:orders:read"]
+          "requiredScope": [
+            "shopify:orders:read"
+          ]
         }
       }
     }

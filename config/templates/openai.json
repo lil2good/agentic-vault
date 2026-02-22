@@ -5,20 +5,35 @@
   "baseUrl": "https://api.openai.com/v1",
   "secretRef": "openai_api_key",
   "secretEnvHint": "Your OpenAI API key (Platform → API keys)",
-  "allowedActions": ["issue", "chat.completions.create", "embeddings.create"],
-  "allowedScopes": ["openai:chat:create", "openai:embeddings:create"],
-  "defaultScopes": ["openai:chat:create"],
-  "defaultAllowedAgents": ["*"],
+  "allowedActions": [
+    "issue",
+    "chat.completions.create",
+    "embeddings.create"
+  ],
+  "allowedScopes": [
+    "openai:chat:create",
+    "openai:embeddings:create"
+  ],
+  "defaultScopes": [
+    "openai:chat:create"
+  ],
+  "defaultAllowedAgents": [
+    "*"
+  ],
   "endpoints": {
     "chat.completions.create": {
       "method": "POST",
       "path": "/chat/completions",
-      "requiredScope": ["openai:chat:create"]
+      "requiredScope": [
+        "openai:chat:create"
+      ]
     },
     "embeddings.create": {
       "method": "POST",
       "path": "/embeddings",
-      "requiredScope": ["openai:embeddings:create"]
+      "requiredScope": [
+        "openai:embeddings:create"
+      ]
     }
   }
 }

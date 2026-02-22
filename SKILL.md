@@ -151,6 +151,14 @@ Returns service names, allowed agents, scopes — secrets are NEVER returned.
 
 ### Step 1: Issue a scoped token
 
+Minimal (single-agent setup — agentId defaults to "main"):
+```bash
+curl -s http://localhost:8787/vault.issueToken \
+  -H 'content-type: application/json' \
+  -d '{"service": "github", "scope": ["github:repos:read"]}'
+```
+
+Multi-agent (specify which agent):
 ```bash
 curl -s http://localhost:8787/vault.issueToken \
   -H 'content-type: application/json' \
@@ -158,13 +166,11 @@ curl -s http://localhost:8787/vault.issueToken \
     "service": "github",
     "scope": ["github:repos:read"],
     "ttl": 60,
-    "agentId": "tony",
-    "sessionId": "sess-123",
-    "taskId": "task-456",
-    "skillId": "github-read",
-    "tool": "vault.issueToken"
+    "agentId": "coder"
   }'
 ```
+
+Optional fields: `sessionId`, `taskId`, `skillId`, `tool` — auto-generated if omitted. Pass them for stricter audit/binding in multi-agent setups.
 
 Returns: `{ tokenId, token, expiresInSec }`
 
@@ -177,16 +183,11 @@ curl -s http://localhost:8787/vault.call \
     "token": "<TOKEN_FROM_STEP_1>",
     "service": "github",
     "action": "repos.get",
-    "params": {},
-    "context": {
-      "agentId": "tony",
-      "sessionId": "sess-123",
-      "taskId": "task-456",
-      "skillId": "github-read",
-      "tool": "vault.call"
-    }
+    "params": {}
   }'
 ```
+
+Context fields (`agentId`, `sessionId`, etc.) are optional on `vault.call` too — they default to match the token if omitted.
 
 The vault attaches the master secret server-side and forwards the request. The agent never sees the real API key.
 

@@ -241,3 +241,64 @@ curl -s http://localhost:8787/vault.admin.removeService \
 - Short TTL tokens (60s–600s) — don't request more than you need
 - Revoke sessions/tokens when tasks are done
 - All operations are audit-logged automatically
+
+## Shell Helper (agentvault)
+
+Instead of raw curl commands, use the `agentvault` CLI or source the helper in scripts.
+
+### Terminal Usage
+
+```bash
+# Check vault status
+agentvault health
+
+# Issue a scoped token
+agentvault token github github:repos:read
+
+# Proxy an API call (pass token explicitly)
+TOKEN=$(agentvault token github github:repos:read)
+agentvault call github repos.get --token "$TOKEN"
+
+# Or pipe the token
+agentvault token github github:repos:read | agentvault call github repos.get
+
+# List configured services
+agentvault services
+
+# Revoke tokens for an agent
+agentvault revoke --agent tony --reason "task complete"
+
+# Query audit log
+agentvault audit --limit 10 --event proxy.call
+```
+
+### Script Usage
+
+```bash
+source /path/to/agentvault.sh
+
+# Issue a token (returns just the token string)
+TOKEN="$(agentvault_token github github:repos:read)"
+
+# Make a proxied API call
+agentvault_call "$TOKEN" github repos.get
+
+# With a JSON payload
+agentvault_call "$TOKEN" github repos.get '{"owner":"lil2good"}'
+
+# Check vault health
+agentvault_health
+
+# List services (requires admin token)
+agentvault_services
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VAULT_URL` | `http://127.0.0.1:8787` | Vault server URL |
+| `VAULT_ADMIN_TOKEN` | (auto-read from .env) | Admin token for service management |
+| `AGENTVAULT_AGENT_ID` | `main` | Agent identity for token requests |
+| `AGENTVAULT_TTL` | `300` | Token TTL in seconds |
+| `AGENTVAULT_DIR` | (auto-detected) | Skill directory override |

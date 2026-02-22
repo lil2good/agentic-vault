@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# agentvault — CLI for the Agentic Credential Vault
+# Usage: agentvault <command> [args...]
+#
+# Commands:
+#   health                           Check if vault is running
+#   token <service> <scope...>       Issue a scoped token
+#   call <service> <action> [opts]   Proxy an API call through the vault
+#   services                         List configured services
+#   revoke [--agent|--session|--token <id>]  Revoke tokens
+#   audit [--limit N] [--event type] Query audit log
+#
+# Environment:
+#   VAULT_URL           Vault base URL (default: http://127.0.0.1:8787)
+#   VAULT_ADMIN_TOKEN   Admin token (auto-read from .env if unset)
+#   AGENTVAULT_AGENT_ID Agent identity for token requests (default: main)
+#   AGENTVAULT_TTL      Token TTL in seconds (default: 300)
+#   AGENTVAULT_DIR      Skill directory override
+
+set -euo pipefail
+
+# Source the shared functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=agentvault.sh
+source "${SCRIPT_DIR}/agentvault.sh"
+
+_agentvault_usage() {
+  cat <<'EOF'
+agentvault — CLI for the Agentic Credential Vault
+
+Usage: agentvault <command> [args...]
+
+Commands:
+  health                                  Check if vault is running
+  token <service> <scope1> [scope2...]    Issue a scoped token
+  call <service> <action> [options]       Proxy an API call through the vault
+  services                                List configured services
+  revoke [options]                        Revoke tokens
+  audit [options]                         Query audit log
+
+Call options:
+  --token <token>     Token from 'agentvault token' (or pipe via stdin)
+  --json <payload>    JSON body for the API call (default: {})
+
+Revoke options:
+  --agent <id>        Revoke all tokens for an agent
+  --session <id>      Revoke all tokens for a session
+  --token <id>        Revoke a specific token
+  --reason <text>     Reason for revocation
+
+Audit options:
+  --limit <N>         Number of entries (default: 20)
+  --event <type>      Filter by event type
+  --agent <id>        Filter by agent
+
+Environment:
+  VAULT_URL             default: http://127.0.0.1:8787
+  VAULT_ADMIN_TOKEN     auto-read from .env if unset
+  AGENTVAULT_AGENT_ID   default: main
+  AGENTVAULT_TTL        default: 300
+EOF
+}
+
+_cmd_call() {
+  # agentvault call <service> <action> [--token <t>] [--json <payload>]
+  local service="$1"; shift
+  local action="$1"; shift
+  local token="" payload="{}"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --token) token="$2"; shift 2;;
+      --json)  payload="$2"; shift 2;;
+      *) echo "error: unknown option '$1'" >&2; return 1;;
+    esac
+  done
+  # Read token from stdin if not provided and stdin is a pipe
+  if [ -z "$token" ] && [ ! -t 0 ]; then
+    token=$(cat)
+  fi
+  if [ -z "$token" ]; then
+    echo "error: no token provided. Use --token <t> or pipe from 'agentvault token'" >&2
+    return 1
+  fi
+  agentvault_call "$token" "$service" "$action" "$payload"
+}
+
+# ---------------------------------------------------------------------------
+# Main dispatch
+# ---------------------------------------------------------------------------
+
+if [ $# -eq 0 ]; then
+  _agentvault_usage
+  exit 0
+fi
+
+command="$1"; shift
+
+case "$command" in
+  health)    agentvault_health ;;
+  token)     agentvault_token "$@" ;;
+  call)      _cmd_call "$@" ;;
+  services)  agentvault_services ;;
+  revoke)    agentvault_revoke "$@" ;;
+  audit)     agentvault_audit "$@" ;;
+  help|-h|--help) _agentvault_usage ;;
+  *)
+    echo "error: unknown command '$command'" >&2
+    echo "Run 'agentvault help' for usage." >&2
+    exit 1
+    ;;
+esac

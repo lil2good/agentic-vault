@@ -1,0 +1,69 @@
+{
+  "name": "agentmail",
+  "displayName": "AgentMail",
+  "description": "AgentMail API — email identity and inbox management for AI agents",
+  "baseUrl": "https://api.agentmail.to/v0",
+  "secretRef": "agentmail_api_key",
+  "secretEnvHint": "Your AgentMail API key from https://console.agentmail.to/",
+  "allowedActions": [
+    "issue",
+    "inboxes.create",
+    "inboxes.list",
+    "inboxes.get",
+    "messages.send",
+    "messages.list",
+    "messages.get",
+    "search.semantic"
+  ],
+  "allowedScopes": [
+    "agentmail:inboxes:read",
+    "agentmail:inboxes:write",
+    "agentmail:messages:read",
+    "agentmail:messages:write",
+    "agentmail:search:read"
+  ],
+  "defaultScopes": [
+    "agentmail:inboxes:read",
+    "agentmail:messages:read"
+  ],
+  "defaultAllowedAgents": [
+    "*"
+  ],
+  "endpoints": {
+    "inboxes.create": {
+      "method": "POST",
+      "path": "/inboxes",
+      "requiredScope": ["agentmail:inboxes:write"]
+    },
+    "inboxes.list": {
+      "method": "GET",
+      "path": "/inboxes",
+      "requiredScope": ["agentmail:inboxes:read"]
+    },
+    "inboxes.get": {
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}",
+      "requiredScope": ["agentmail:inboxes:read"]
+    },
+    "messages.send": {
+      "method": "POST",
+      "path": "/inboxes/{inbox_id}/messages",
+      "requiredScope": ["agentmail:messages:write"]
+    },
+    "messages.list": {
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}/messages",
+      "requiredScope": ["agentmail:messages:read"]
+    },
+    "messages.get": {
+      "method": "GET",
+      "path": "/messages/{message_id}",
+      "requiredScope": ["agentmail:messages:read"]
+    },
+    "search.semantic": {
+      "method": "POST",
+      "path": "/search/semantic",
+      "requiredScope": ["agentmail:search:read"]
+    }
+  }
+}

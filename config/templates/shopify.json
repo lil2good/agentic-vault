@@ -1,0 +1,24 @@
+{
+  "name": "shopify",
+  "displayName": "Shopify",
+  "description": "Shopify Admin API access for orders and products",
+  "baseUrl": "https://your-store.myshopify.com/admin/api/2024-10",
+  "secretRef": "shopify_admin_token",
+  "secretEnvHint": "Your Shopify Admin API Access Token (Apps → Develop apps)",
+  "allowedActions": ["issue", "orders.list", "products.list"],
+  "allowedScopes": ["shopify:orders:read", "shopify:products:read"],
+  "defaultScopes": ["shopify:orders:read"],
+  "defaultAllowedAgents": ["*"],
+  "endpoints": {
+    "orders.list": {
+      "method": "GET",
+      "path": "/orders.json",
+      "requiredScope": ["shopify:orders:read"]
+    },
+    "products.list": {
+      "method": "GET",
+      "path": "/products.json",
+      "requiredScope": ["shopify:products:read"]
+    }
+  }
+}

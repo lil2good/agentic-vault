@@ -1,0 +1,34 @@
+{
+  "name": "github",
+  "displayName": "GitHub",
+  "description": "GitHub API access for repositories, issues, and pull requests",
+  "baseUrl": "https://api.github.com",
+  "secretRef": "github_pat",
+  "secretEnvHint": "Your GitHub Personal Access Token (Settings → Developer Settings → PATs)",
+  "allowedActions": ["issue", "repos.get", "repos.list", "issues.list", "pulls.list"],
+  "allowedScopes": ["github:repos:read", "github:repos:write", "github:issues:read", "github:prs:read"],
+  "defaultScopes": ["github:repos:read"],
+  "defaultAllowedAgents": ["*"],
+  "endpoints": {
+    "repos.get": {
+      "method": "GET",
+      "path": "/user/repos",
+      "requiredScope": ["github:repos:read"]
+    },
+    "repos.list": {
+      "method": "GET",
+      "path": "/user/repos",
+      "requiredScope": ["github:repos:read"]
+    },
+    "issues.list": {
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/issues",
+      "requiredScope": ["github:issues:read"]
+    },
+    "pulls.list": {
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/pulls",
+      "requiredScope": ["github:prs:read"]
+    }
+  }
+}

@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node src/server.js",
-    "start": "node src/server.js"
+    "dev": "node src/vault.js",
+    "start": "node src/vault.js"
   },
   "dependencies": {
     "express": "^4.21.2",

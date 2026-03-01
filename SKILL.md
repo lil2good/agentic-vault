@@ -305,6 +305,23 @@ agentvault audit --agent tony --limit 50
 | `AGENTVAULT_TTL` | `300` | Token TTL in seconds |
 | `AGENTVAULT_DIR` | (auto-detected) | Skill directory override |
 
+## AGENTS.md Integration
+
+Add the following to your `AGENTS.md` (or equivalent agent rules file) to enforce Vault-first credential handling:
+
+```markdown
+## Credential Vault — Hard Rules
+- **Vault-first for any skill or integration touching an external API. No exceptions.**
+- When creating/updating a skill that needs API keys: register credentials in the Vault, issue scoped agent tokens. Never hardcode keys in scripts or references.
+- When setting up a new integration: check if the Vault already has a service entry. If not, create one before writing any code.
+- Skill creation checklist addition: "Does this skill need external API access? → Register in Vault, declare in SKILL.md."
+- Subagents inherit this rule — use Vault-scoped tokens, not raw keys.
+```
+
+This ensures every session loads the rule and agents default to the Vault without manual reminders.
+
+---
+
 ## Security Rules
 
 - **NEVER** log, print, or return master secrets

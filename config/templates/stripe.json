@@ -4,7 +4,7 @@
   "description": "Stripe API access for charges and customers",
   "baseUrl": "https://api.stripe.com/v1",
   "secretRef": "stripe_secret_key",
-  "secretEnvHint": "Your Stripe Secret API Key (Developers → API keys)",
+  "secretEnvHint": "Your Stripe Secret API Key (Developers \u2192 API keys)",
   "allowedActions": [
     "issue",
     "charges.list",
@@ -35,5 +35,12 @@
         "stripe:customers:read"
       ]
     }
+  },
+  "agentScopes": {
+    "_comment": "Example: restrict support-agent to read-only. Remove or customize per deployment.",
+    "support-agent": [
+      "stripe:charges:read",
+      "stripe:customers:read"
+    ]
   }
 }

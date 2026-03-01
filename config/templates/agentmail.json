@@ -1,7 +1,7 @@
 {
   "name": "agentmail",
   "displayName": "AgentMail",
-  "description": "AgentMail API — email identity and inbox management for AI agents",
+  "description": "AgentMail API \u2014 email identity and inbox management for AI agents",
   "baseUrl": "https://api.agentmail.to/v0",
   "secretRef": "agentmail_api_key",
   "secretEnvHint": "Your AgentMail API key from https://console.agentmail.to/",
@@ -33,37 +33,59 @@
     "inboxes.create": {
       "method": "POST",
       "path": "/inboxes",
-      "requiredScope": ["agentmail:inboxes:write"]
+      "requiredScope": [
+        "agentmail:inboxes:write"
+      ]
     },
     "inboxes.list": {
       "method": "GET",
       "path": "/inboxes",
-      "requiredScope": ["agentmail:inboxes:read"]
+      "requiredScope": [
+        "agentmail:inboxes:read"
+      ]
     },
     "inboxes.get": {
       "method": "GET",
       "path": "/inboxes/{inbox_id}",
-      "requiredScope": ["agentmail:inboxes:read"]
+      "requiredScope": [
+        "agentmail:inboxes:read"
+      ]
     },
     "messages.send": {
       "method": "POST",
       "path": "/inboxes/{inbox_id}/messages",
-      "requiredScope": ["agentmail:messages:write"]
+      "requiredScope": [
+        "agentmail:messages:write"
+      ]
     },
     "messages.list": {
       "method": "GET",
       "path": "/inboxes/{inbox_id}/messages",
-      "requiredScope": ["agentmail:messages:read"]
+      "requiredScope": [
+        "agentmail:messages:read"
+      ]
     },
     "messages.get": {
       "method": "GET",
       "path": "/messages/{message_id}",
-      "requiredScope": ["agentmail:messages:read"]
+      "requiredScope": [
+        "agentmail:messages:read"
+      ]
     },
     "search.semantic": {
       "method": "POST",
       "path": "/search/semantic",
-      "requiredScope": ["agentmail:search:read"]
+      "requiredScope": [
+        "agentmail:search:read"
+      ]
     }
+  },
+  "agentScopes": {
+    "_comment": "Example: restrict reader-agent to read-only. Remove or customize per deployment.",
+    "reader-agent": [
+      "agentmail:inboxes:read",
+      "agentmail:messages:read",
+      "agentmail:search:read"
+    ]
   }
 }

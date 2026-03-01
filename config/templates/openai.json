@@ -4,7 +4,7 @@
   "description": "OpenAI API access for chat completions and embeddings",
   "baseUrl": "https://api.openai.com/v1",
   "secretRef": "openai_api_key",
-  "secretEnvHint": "Your OpenAI API key (Platform → API keys)",
+  "secretEnvHint": "Your OpenAI API key (Platform \u2192 API keys)",
   "allowedActions": [
     "issue",
     "chat.completions.create",
@@ -35,5 +35,11 @@
         "openai:embeddings:create"
       ]
     }
+  },
+  "agentScopes": {
+    "_comment": "Example: restrict summarizer to embeddings only. Remove or customize per deployment.",
+    "summarizer": [
+      "openai:embeddings:create"
+    ]
   }
 }

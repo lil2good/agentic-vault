@@ -270,6 +270,32 @@ agentvault_call "$TOKEN" github refs.update "{\"owner\":\"$O\",\"repo\":\"$R\",\
 
 ---
 
+## Per-Agent Scope Limits
+
+By default, any agent in `allowedAgents` can request any scope in `allowedScopes`. To restrict specific agents to a subset of scopes, add `agentScopes` to the service config:
+
+```json
+{
+  "allowedAgents": ["orchestrator", "builder", "reviewer"],
+  "allowedScopes": ["service:data:read", "service:data:write", "service:admin"],
+  "agentScopes": {
+    "reviewer": ["service:data:read"],
+    "builder": ["service:data:read", "service:data:write"]
+  }
+}
+```
+
+**Rules:**
+- Agents **not listed** in `agentScopes` get full `allowedScopes` (e.g., `orchestrator` above gets everything)
+- Agents **listed** in `agentScopes` can only request their specified scopes
+- Requesting a scope outside the agent's limit returns `INSUFFICIENT_SCOPE`
+- The field is optional — omitting it preserves backward-compatible behavior
+- All templates in `config/templates/` include example `agentScopes` entries
+
+This works for any service — GitHub, Shopify, Railway, Stripe, custom APIs. The pattern is always the same: list the agent, list their allowed scopes.
+
+---
+
 ## Revocation
 
 ```bash

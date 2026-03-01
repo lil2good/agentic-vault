@@ -4,7 +4,7 @@
   "description": "Shopify Admin API access for orders and products",
   "baseUrl": "https://your-store.myshopify.com/admin/api/2024-10",
   "secretRef": "shopify_admin_token",
-  "secretEnvHint": "Your Shopify Admin API Access Token (Apps → Develop apps)",
+  "secretEnvHint": "Your Shopify Admin API Access Token (Apps \u2192 Develop apps)",
   "allowedActions": [
     "issue",
     "orders.list",
@@ -35,5 +35,12 @@
         "shopify:products:read"
       ]
     }
+  },
+  "agentScopes": {
+    "_comment": "Example: restrict analytics-agent to read-only. Remove or customize per deployment.",
+    "analytics-agent": [
+      "shopify:orders:read",
+      "shopify:products:read"
+    ]
   }
 }

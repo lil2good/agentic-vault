@@ -1,7 +1,7 @@
 {
   "name": "railway",
   "displayName": "Railway",
-  "description": "Railway cloud infrastructure — deploy, monitor, and manage services via GraphQL API",
+  "description": "Railway cloud infrastructure \u2014 deploy, monitor, and manage services via GraphQL API",
   "baseUrl": "https://backboard.railway.com",
   "secretRef": "railway_token",
   "secretEnvHint": "Your Railway API token from https://railway.com/account/tokens",
@@ -24,7 +24,15 @@
     "graphql": {
       "method": "POST",
       "path": "/graphql/v2",
-      "requiredScope": ["railway:read"]
+      "requiredScope": [
+        "railway:read"
+      ]
     }
+  },
+  "agentScopes": {
+    "_comment": "Example: restrict reviewer to read-only. Remove or customize per deployment.",
+    "reviewer": [
+      "railway:read"
+    ]
   }
 }

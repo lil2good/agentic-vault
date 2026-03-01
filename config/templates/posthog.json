@@ -1,10 +1,10 @@
 {
   "name": "posthog",
   "displayName": "PostHog",
-  "description": "PostHog product analytics — events, trends, funnels, and HogQL queries",
+  "description": "PostHog product analytics \u2014 events, trends, funnels, and HogQL queries",
   "baseUrl": "https://us.i.posthog.com",
   "secretRef": "posthog_api_key",
-  "secretEnvHint": "Your PostHog personal API key from Project Settings → Personal API Keys",
+  "secretEnvHint": "Your PostHog personal API key from Project Settings \u2192 Personal API Keys",
   "allowedActions": [
     "issue",
     "query",
@@ -29,27 +29,44 @@
     "query": {
       "method": "POST",
       "path": "/api/projects/{project_id}/query",
-      "requiredScope": ["posthog:query:read"]
+      "requiredScope": [
+        "posthog:query:read"
+      ]
     },
     "events.list": {
       "method": "GET",
       "path": "/api/projects/{project_id}/events",
-      "requiredScope": ["posthog:events:read"]
+      "requiredScope": [
+        "posthog:events:read"
+      ]
     },
     "persons.list": {
       "method": "GET",
       "path": "/api/projects/{project_id}/persons",
-      "requiredScope": ["posthog:persons:read"]
+      "requiredScope": [
+        "posthog:persons:read"
+      ]
     },
     "insights.list": {
       "method": "GET",
       "path": "/api/projects/{project_id}/insights",
-      "requiredScope": ["posthog:insights:read"]
+      "requiredScope": [
+        "posthog:insights:read"
+      ]
     },
     "insights.get": {
       "method": "GET",
       "path": "/api/projects/{project_id}/insights/{insight_id}",
-      "requiredScope": ["posthog:insights:read"]
+      "requiredScope": [
+        "posthog:insights:read"
+      ]
     }
+  },
+  "agentScopes": {
+    "_comment": "Example: restrict dashboard-agent to query and insights only. Remove or customize per deployment.",
+    "dashboard-agent": [
+      "posthog:query:read",
+      "posthog:insights:read"
+    ]
   }
 }

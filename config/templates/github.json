@@ -47,6 +47,10 @@
   "defaultAllowedAgents": [
     "*"
   ],
+  "agentScopes": {
+    "_comment": "Example: restrict steve to read-only scopes. Remove or customize per deployment.",
+    "steve": ["github:repos:read", "github:issues:read", "github:prs:read", "github:git:read"]
+  },
   "endpoints": {
     "repos.list": {
       "method": "GET",

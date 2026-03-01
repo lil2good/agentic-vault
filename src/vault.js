@@ -209,13 +209,22 @@ function isActionAllowed(serviceConfig, action, agentId) {
   );
 }
 
-function validateScope(serviceConfig, requestedScope = []) {
+function validateScope(serviceConfig, requestedScope = [], agentId = null) {
   const allowedScopes = serviceConfig.allowedScopes || [];
   const requested = Array.isArray(requestedScope) ? requestedScope : [];
   if (requested.length === 0) throw new Error('SCOPE_REQUIRED');
   if (allowedScopes.length === 0) throw new Error('SERVICE_ALLOWED_SCOPES_NOT_CONFIGURED');
   const invalid = requested.filter((s) => !allowedScopes.includes(s));
   if (invalid.length > 0) throw new Error(`INVALID_SCOPE:${invalid.join(',')}`);
+
+  // Per-agent scope restrictions
+  const agentScopes = serviceConfig.agentScopes;
+  if (agentId && agentScopes && typeof agentScopes === 'object' && agentId in agentScopes) {
+    const permitted = agentScopes[agentId] || [];
+    const denied = requested.filter((s) => !permitted.includes(s));
+    if (denied.length > 0) throw new Error(`INSUFFICIENT_SCOPE:${denied.join(',')}`);
+  }
+
   return requested;
 }
 
@@ -373,6 +382,7 @@ function sanitizeServiceList() {
     allowedAgents: cfg.allowedAgents || [],
     allowedActions: cfg.allowedActions || [],
     allowedScopes: cfg.allowedScopes || [],
+    ...(cfg.agentScopes ? { agentScopes: cfg.agentScopes } : {}),
     endpointNames: Object.keys(cfg.endpoints || {}),
   }));
 }
@@ -405,7 +415,7 @@ app.post('/vault.issueToken', (req, res) => {
       throw new Error('POLICY_DENY');
     }
 
-    const validScope = validateScope(serviceConfig, scope);
+    const validScope = validateScope(serviceConfig, scope, context.agentId);
     const token = issueToken({ service, scope: validScope, ttl, context });
     res.json(token);
   } catch (error) {
@@ -558,6 +568,7 @@ app.post('/vault.admin.addService', (req, res) => {
       allowedAgents,
       allowedActions,
       allowedScopes,
+      agentScopes,
       endpoints,
       secretRef,
       authHeader,
@@ -583,6 +594,7 @@ app.post('/vault.admin.addService', (req, res) => {
       ...(secretRef ? { secretRef } : {}),
       ...(authHeader ? { authHeader } : {}),
       ...(authScheme ? { authScheme } : {}),
+      ...(agentScopes ? { agentScopes } : {}),
     };
 
     if (masterSecret != null) {

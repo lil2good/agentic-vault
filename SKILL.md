@@ -314,6 +314,3 @@ agentvault audit --agent tony --limit 50
 - Revoke sessions/tokens when tasks are done
 - All operations are audit-logged automatically
 
-## Migration
-
-If upgrading from an older version that used a single `config/policy.json`, the vault auto-migrates services to individual files in `config/services/` on first restart. The original file is renamed to `policy.migrated.json` as a backup.

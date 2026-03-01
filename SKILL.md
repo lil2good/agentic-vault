@@ -94,7 +94,10 @@ A service file looks like this:
   "secretRef": "github_pat",
   "allowedAgents": ["main", "tony", "steve"],
   "allowedActions": ["issue", "repo.get", "pulls.list"],
-  "allowedScopes": ["github:repos:read", "github:prs:read"],
+  "allowedScopes": ["github:repos:read", "github:repos:write", "github:prs:read", "github:prs:write"],
+  "agentScopes": {
+    "steve": ["github:repos:read", "github:prs:read"]
+  },
   "endpoints": {
     "repo.get": {
       "method": "GET",
@@ -106,6 +109,26 @@ A service file looks like this:
 ```
 
 Path params like `{owner}` and `{repo}` are interpolated from the `params` object at call time. Remaining params become query string (GET) or JSON body (POST/PUT/PATCH).
+
+### Per-Agent Scope Restrictions (`agentScopes`)
+
+Optional. Narrows `allowedScopes` for specific agents. Agents **not** listed in `agentScopes` get access to the full `allowedScopes` set (backward compatible).
+
+```json
+{
+  "allowedAgents": ["main", "tony", "steve"],
+  "allowedScopes": ["github:repos:read", "github:repos:write", "github:prs:read", "github:prs:write"],
+  "agentScopes": {
+    "steve": ["github:repos:read", "github:prs:read"]
+  }
+}
+```
+
+In the example above:
+- **main** and **tony** can request any of the four scopes
+- **steve** can only request `github:repos:read` and `github:prs:read` — requesting `github:repos:write` returns `INSUFFICIENT_SCOPE`
+
+Set via `vault.admin.addService`, `vault.admin.updateService`, or directly in the service JSON file.
 
 ### Add a service from a template
 

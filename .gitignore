@@ -8,3 +8,4 @@ config/policy.migrated.json
 ecosystem.config.cjs
 *.token-cache
 .token-cache
+DOCUMENTATION.md
